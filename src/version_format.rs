@@ -36,25 +36,39 @@ pub struct VersionFormat {
     regex: Regex,
 }
 
+#[derive(Debug)]
+struct Replacement {
+    escape_code: &'static str,
+    normalized: &'static str,
+}
+
+const SEMANTIC: Replacement = Replacement {
+    escape_code: r"\m",
+    normalized: r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+",
+};
+
+const SEQUENCE: Replacement = Replacement {
+    escape_code: r"\q",
+    normalized: r"[[:digit:]]+",
+};
+
+const REPLACEMENTS: [Replacement; 2] = [SEMANTIC, SEQUENCE];
+
 impl VersionFormat {
-    pub fn new(format: &str) -> Result<VersionFormat, regex::Error> {
-        let semver_code = r"\m";
-        let normalized_semver = r"(?P<semver>[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+)";
-
-        let sequence_code = r"\q";
-        let normalized_sequence = r"(?P<seq>[[:digit:]]+)";
-
-        let normalized_format = format
-            .replace(semver_code, normalized_semver)
-            .replace(sequence_code, normalized_sequence);
-
+    pub fn new<S: Into<String>>(format: S) -> Result<VersionFormat, regex::Error> {
+        // TODO: Warn about missing version escape character.
+        let mut normalized_format: String = format.into();
+        for rep in &REPLACEMENTS {
+            let capture = format!("(?{})", rep.normalized); // Ensure no capture groups are present in string.
+            normalized_format = normalized_format.replace(rep.escape_code, &capture);
+        }
         let regex = Regex::new(&normalized_format)?;
 
         Ok(VersionFormat { regex })
     }
 
-    pub fn matches<S: AsRef<str>>(&self, version: S) -> bool {
-        self.regex.is_match(version.as_ref())
+    pub fn matches<S: AsRef<str>>(&self, candidate: S) -> bool {
+        self.regex.is_match(candidate.as_ref())
     }
 }
 
