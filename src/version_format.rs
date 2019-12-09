@@ -59,7 +59,7 @@ impl VersionFormat {
         // TODO: Warn about missing version escape character.
         let mut normalized_format: String = format.into();
         for rep in &REPLACEMENTS {
-            let capture = format!("(?{})", rep.normalized); // Ensure no capture groups are present in string.
+            let capture = format!("({})", rep.normalized); // Ensure no capture groups are present in string.
             normalized_format = normalized_format.replace(rep.escape_code, &capture);
         }
         let regex = Regex::new(&normalized_format)?;
