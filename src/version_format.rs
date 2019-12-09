@@ -1,12 +1,6 @@
 use regex::Regex;
 
-#[derive(Debug)]
-pub struct VersionFormat {
-    regex: Regex,
-}
-
-impl VersionFormat {
-    /// Compiles the regular expression.
+/// A version format detecting and comparing versions.
     ///
     /// The syntax is based on [Regex], but adds two special escaped characters:
     /// - `\m` which stands for a semantic version (se**m**antic).
@@ -26,6 +20,7 @@ impl VersionFormat {
     /// ```
     ///
     /// Detect a sequential version after a prefix:
+///
     /// ```rust
     /// # extern crate updock; use updock::VersionFormat;
     /// # fn main() {
@@ -36,6 +31,12 @@ impl VersionFormat {
     /// ```
     ///
     /// [Regex]: https://docs.rs/regex/1.3.1/regex/index.html#syntax
+#[derive(Debug)]
+pub struct VersionFormat {
+    regex: Regex,
+}
+
+impl VersionFormat {
     pub fn new(format: &str) -> Result<VersionFormat, regex::Error> {
         let semver_code = r"\m";
         let normalized_semver = r"(?P<semver>\d+\.\d+\.\d+)";
