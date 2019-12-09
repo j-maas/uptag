@@ -1,3 +1,3 @@
 mod version_format;
 
-pub use version_format::VersionFormat;
+pub use version_format::VersionExtractor;

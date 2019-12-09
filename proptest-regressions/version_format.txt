@@ -4,5 +4,3 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 71b3dbc5d0ef8a71b450301dfb7ed3dfb0d121692c2008edd48adbd733b162f1 # shrinks to prefix = "", version = "0.0.0", suffix = ""
-cc 80a3256a489e847df91528c272c4cc9ccea07a9192196c0cc7d6a98a1529944d # shrinks to invalid = "0.0.00"

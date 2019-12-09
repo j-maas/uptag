@@ -2,18 +2,28 @@ use regex::Regex;
 
 /// A version format detecting and comparing versions.
 ///
-/// The syntax is based on [Regex], but adds two special escaped characters:
-/// - `\m` which stands for a semantic version (se**m**antic).
-/// - `\q` which stands for a sequence number (se**q**uence).
+/// The extractor is built on a regular expression that extracts the numbers
+/// to be used for the version. The goal is to have all relevant numbers captured
+/// in [unnamed capture groups]. The [Regex] syntax is used.
+///
+/// Note that only unnamed capture groups will be extracted. Named capture groups have no effect.
+/// You are responsible for ensuring that all capture groups only capture strings
+/// that can be parsed into an unsigned integer. Otherwise, [`extract_from()`] will return `None`.
+///
+/// This also means that it is not possible to affect the ordering of the extracted numbers.
+/// They will always be compared from left to right in the order of the capture groups. As an example,
+/// it is not possible to extract a `<minor>.<major>` scheme, where you want to sort first by `<major>` and
+/// then by `<minor>`. It will have to be sorted first by `<minor>` then by `<major>`, since `<minor>` is
+/// before `<major>`.
 ///
 /// # Examples
 ///
 /// Detect only proper SemVer, without any prefix or suffix:
 ///
 /// ```rust
-/// # extern crate updock; use updock::VersionFormat;
+/// # extern crate updock; use updock::VersionExtractor;
 /// # fn main() {
-/// let format = VersionFormat::new(r"^\m$").unwrap();
+/// let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
 /// assert!(format.matches("1.2.3"));
 /// assert!(!format.matches("1.2.3-debian"));
 /// # }
@@ -22,53 +32,76 @@ use regex::Regex;
 /// Detect a sequential version after a prefix:
 ///
 /// ```rust
-/// # extern crate updock; use updock::VersionFormat;
+/// # extern crate updock; use updock::VersionExtractor;
 /// # fn main() {
-/// let format = VersionFormat::new(r"^debian-r\q$").unwrap();
+/// let format = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
 /// assert!(format.matches("debian-r24"));
 /// assert!(!format.matches("debian-r24-alpha"));
 /// # }
 /// ```
 ///
+/// [unnamed capture groups]: https://docs.rs/regex/1.3.1/regex/#grouping-and-flags
 /// [Regex]: https://docs.rs/regex/1.3.1/regex/index.html#syntax
+/// [`extract_from()`]: #method.extract_from
 #[derive(Debug)]
-pub struct VersionFormat {
+pub struct VersionExtractor {
     regex: Regex,
 }
 
-#[derive(Debug)]
-struct Replacement {
-    escape_code: &'static str,
-    normalized: &'static str,
-}
-
-const SEMANTIC: Replacement = Replacement {
-    escape_code: r"\m",
-    normalized: r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+",
-};
-
-const SEQUENCE: Replacement = Replacement {
-    escape_code: r"\q",
-    normalized: r"[[:digit:]]+",
-};
-
-const REPLACEMENTS: [Replacement; 2] = [SEMANTIC, SEQUENCE];
-
-impl VersionFormat {
-    pub fn new<S: Into<String>>(format: S) -> Result<VersionFormat, regex::Error> {
-        // TODO: Warn about missing version escape character.
-        let mut normalized_format: String = format.into();
-        for rep in &REPLACEMENTS {
-            let capture = format!("({})", rep.normalized); // Ensure no capture groups are present in string.
-            normalized_format = normalized_format.replace(rep.escape_code, &capture);
-        }
-        let regex = Regex::new(&normalized_format)?;
-
-        Ok(VersionFormat { regex })
+impl VersionExtractor {
+    pub fn parse(regex: &str) -> Result<VersionExtractor, regex::Error> {
+        Ok(VersionExtractor {
+            regex: Regex::new(regex)?,
+        })
     }
 
-    pub fn matches<S: AsRef<str>>(&self, candidate: S) -> bool {
+    pub fn from(regex: Regex) -> VersionExtractor {
+        VersionExtractor { regex }
+    }
+
+    pub fn matches(&self, candidate: &str) -> bool {
         self.regex.is_match(candidate.as_ref())
+    }
+
+    pub fn extract_from(&self, candidate: &str) -> Result<Version, ExtractionError> {
+        self.regex
+            .captures_iter(candidate)
+            .next()
+            .ok_or(ExtractionError::EmptyMatch)
+            .and_then(|capture| {
+                capture
+                    .iter()
+                    .skip(1) // The first group is the entire match.
+                    .map(|maybe_submatch| {
+                        maybe_submatch.and_then(|submatch| submatch.as_str().parse().ok())
+                    })
+                    .collect::<Option<Vec<VersionPart>>>()
+                    .ok_or(ExtractionError::InvalidGroup)
+            })
+            .map(|parts| Version { parts })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ExtractionError {
+    EmptyMatch,
+    InvalidGroup,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Version {
+    parts: Vec<VersionPart>,
+}
+
+type VersionPart = u64;
+
+impl Version {
+    pub fn new(parts: Vec<VersionPart>) -> Option<Version> {
+        if parts.is_empty() {
+            None
+        } else {
+            Some(Version { parts })
+        }
     }
 }
 
@@ -103,38 +136,28 @@ mod tests {
     proptest! {
         #[test]
         fn detects_simple_semver(valid in r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+") {
-            let format = VersionFormat::new(r"^\m$").unwrap();
+            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
             prop_assert_matches!(format, &valid);
         }
 
         #[test]
-        fn rejects_simple_semver_with_prefix(invalid in r".*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+.*") {
-            let format = VersionFormat::new(r"^\m$").unwrap();
+        fn rejects_simple_semver_with_prefix(invalid in r"\PC*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*") {
+            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
 
         #[test]
-        fn rejects_simple_semver_with_suffix(invalid in r".*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]].*") {
-            let format = VersionFormat::new(r"^\m$").unwrap();
+        fn rejects_simple_semver_with_suffix(invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]]\PC*") {
+            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
 
         #[test]
-        fn detects_simple_sequence(valid in r"[[:digit:]]+") {
-            let format = VersionFormat::new(r"^\q$").unwrap();
-            prop_assert_matches!(format, &valid);
-        }
-
-        #[test]
-        fn rejects_simple_sequence_with_prefix(invalid in r".*[^[:digit:]][[:digit:]]+.*") {
-            let format = VersionFormat::new(r"^\q$").unwrap();
-            prop_assert_no_match!(format, &invalid);
-        }
-
-        #[test]
-        fn rejects_simple_sequence_with_suffix(invalid in r".*[[:digit:]]+[^[:digit:]].*") {
-            let format = VersionFormat::new(r"^\q$").unwrap();
-            prop_assert_no_match!(format, &invalid);
+        fn extracts_semver(major: u64, minor: u64, patch: u64, suffix in r"[^\d]\PC*") {
+            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)+").unwrap();
+            let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
+            let version = Version { parts: vec![major, minor, patch]};
+            prop_assert_eq!(format.extract_from(&candidate), Ok(version));
         }
     }
 }
