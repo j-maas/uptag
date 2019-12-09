@@ -94,13 +94,13 @@ mod tests {
         }
 
         #[test]
-        fn rejects_simple_semver_with_prefix(invalid in r"\PC+[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*") {
+        fn rejects_simple_semver_with_prefix(invalid in r".*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+.*") {
             let format = VersionFormat::new(r"^\m$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
 
         #[test]
-        fn rejects_simple_semver_with_suffix(invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC+") {
+        fn rejects_simple_semver_with_suffix(invalid in r".*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]].*") {
             let format = VersionFormat::new(r"^\m$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
@@ -112,13 +112,13 @@ mod tests {
         }
 
         #[test]
-        fn rejects_simple_sequence_with_prefix(invalid in r"\PC+[[:digit:]]+\PC*") {
+        fn rejects_simple_sequence_with_prefix(invalid in r".*[^[:digit:]][[:digit:]]+.*") {
             let format = VersionFormat::new(r"^\q$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
 
         #[test]
-        fn rejects_simple_sequence_with_suffix(invalid in r"\PC*[[:digit:]]+\PC+") {
+        fn rejects_simple_sequence_with_suffix(invalid in r".*[[:digit:]]+[^[:digit:]].*") {
             let format = VersionFormat::new(r"^\q$").unwrap();
             prop_assert_no_match!(format, &invalid);
         }
