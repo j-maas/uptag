@@ -1,3 +1,4 @@
+mod image_name;
 mod tag_fetcher;
 mod version_format;
 
