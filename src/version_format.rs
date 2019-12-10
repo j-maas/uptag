@@ -63,29 +63,33 @@ impl VersionExtractor {
         self.regex.is_match(candidate.as_ref())
     }
 
-    pub fn extract_from(&self, candidate: &str) -> Result<Version, ExtractionError> {
+    pub fn extract_from(&self, candidate: &str) -> Result<Option<Version>, ExtractionError> {
         self.regex
             .captures_iter(candidate)
-            .next()
-            .ok_or(ExtractionError::EmptyMatch)
-            .and_then(|capture| {
+            .flat_map(|capture| {
                 capture
                     .iter()
                     .skip(1) // The first group is the entire match.
-                    .map(|maybe_submatch| {
-                        maybe_submatch.and_then(|submatch| submatch.as_str().parse().ok())
+                    .filter_map(|maybe_submatch| {
+                        maybe_submatch.map(|submatch| {
+                            submatch
+                                .as_str()
+                                .parse()
+                                .map_err(|_| ExtractionError::InvalidGroup)
+                        })
                     })
-                    .collect::<Option<Vec<VersionPart>>>()
-                    .ok_or(ExtractionError::InvalidGroup)
+                    .collect::<Vec<Result<VersionPart, ExtractionError>>>()
             })
-            .map(|parts| Version { parts })
+            .collect::<Result<Vec<VersionPart>, ExtractionError>>()
+            .map(Version::new)
     }
 }
 
+// TODO: Test these errors.
 #[derive(Debug, PartialEq)]
 pub enum ExtractionError {
-    EmptyMatch,
     InvalidGroup,
+    EmptyVersion,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -157,7 +161,7 @@ mod tests {
             let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)+").unwrap();
             let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
             let version = Version { parts: vec![major, minor, patch]};
-            prop_assert_eq!(format.extract_from(&candidate), Ok(version));
+            prop_assert_eq!(format.extract_from(&candidate), Ok(Some(version)));
         }
     }
 }
