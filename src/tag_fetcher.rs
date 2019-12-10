@@ -1,5 +1,3 @@
-use std::fmt;
-
 use chrono::NaiveDateTime;
 use log;
 use reqwest;
@@ -7,7 +5,13 @@ use serde::{de, Deserialize, Deserializer};
 
 use crate::image_name::ImageName;
 
-pub struct TagFetcher {}
+pub trait TagFetcher {
+    type Error;
+
+    fn fetch(image: ImageName) -> Result<Vec<String>, Self::Error>;
+}
+
+pub struct DockerHubTagFetcher {}
 
 #[derive(Deserialize, Debug)]
 struct Response {
@@ -31,18 +35,21 @@ where
     NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S.%fZ").map_err(de::Error::custom)
 }
 
-impl TagFetcher {
-    pub fn fetch(raw_name: &str) -> Result<Vec<String>, Error> {
-        let name = ImageName::new(raw_name).ok_or_else(|| Error::InvalidName(raw_name.into()))?;
+impl TagFetcher for DockerHubTagFetcher {
+    type Error = reqwest::Error;
+
+    fn fetch(name: ImageName) -> Result<Vec<String>, Self::Error> {
         let url = format!(
             "https://hub.docker.com/v2/repositories/{}/tags/?page_size=25",
             name
         );
 
-        log::info!("Fetching {}.", url);
-        let mut response = reqwest::get(&url).map_err(Error::Request)?;
-        log::debug!("Received response: {:?}", response);
-        let response: Response = response.json().map_err(Error::Request)?;
+        log::info!("Fetching tags for {}:\n{}", name, url);
+        let mut response = reqwest::get(&url)?;
+        log::debug!("Received response with status `{}`.", response.status());
+        log::debug!("Reading JSON body...");
+        let response: Response = response.json()?;
+        log::info!("Fetch was successful.");
 
         Ok(response
             .results
@@ -51,21 +58,3 @@ impl TagFetcher {
             .collect())
     }
 }
-
-#[derive(Debug)]
-pub enum Error {
-    Request(reqwest::Error),
-    InvalidName(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Error::*;
-        match self {
-            Request(err) => write!(f, "{}", err),
-            InvalidName(raw) => write!(f, "'{}' is not a valid name.", raw),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
