@@ -23,9 +23,9 @@ use regex::Regex;
 /// ```rust
 /// # extern crate updock; use updock::VersionExtractor;
 /// # fn main() {
-/// let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
-/// assert!(format.matches("1.2.3"));
-/// assert!(!format.matches("1.2.3-debian"));
+/// let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
+/// assert!(extractor.matches("1.2.3"));
+/// assert!(!extractor.matches("1.2.3-debian"));
 /// # }
 /// ```
 ///
@@ -34,9 +34,9 @@ use regex::Regex;
 /// ```rust
 /// # extern crate updock; use updock::VersionExtractor;
 /// # fn main() {
-/// let format = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
-/// assert!(format.matches("debian-r24"));
-/// assert!(!format.matches("debian-r24-alpha"));
+/// let extractor = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
+/// assert!(extractor.matches("debian-r24"));
+/// assert!(!extractor.matches("debian-r24-alpha"));
 /// # }
 /// ```
 ///
@@ -138,22 +138,22 @@ mod tests {
     use proptest::prelude::*;
 
     macro_rules! prop_assert_matches {
-        ($format:expr, $string:expr) => {
+        ($extractor:expr, $string:expr) => {
             prop_assert!(
-                $format.matches($string),
+                $extractor.matches($string),
                 "{:?} did not match '{:?}'.",
-                $format,
+                $extractor,
                 $string
             );
         };
     }
 
     macro_rules! prop_assert_no_match {
-        ($format:expr, $string:expr) => {
+        ($extractor:expr, $string:expr) => {
             prop_assert!(
-                !$format.matches($string),
+                !$extractor.matches($string),
                 "{:?} should not match '{}'.",
-                $format,
+                $extractor,
                 $string
             );
         };
@@ -181,33 +181,33 @@ mod tests {
 
         #[test]
         fn extracts_semver(major: u64, minor: u64, patch: u64, suffix in r"[^\d]\PC*") {
-            let format = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
+            let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
             let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
             let version = Version { parts: vec![major, minor, patch]};
-            prop_assert_eq!(format.extract_from(&candidate), Ok(Some(version)));
+            prop_assert_eq!(extractor.extract_from(&candidate), Ok(Some(version)));
         }
 
         #[test]
         fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
-            let format = strict_semver_extractor();
-            let filtered: Vec<String> = format.filter(tags.clone()).collect();
+            let extractor = strict_semver_extractor();
+            let filtered: Vec<String> = extractor.filter(tags.clone()).collect();
             prop_assert_eq!(filtered, tags);
         }
 
         #[test]
         fn returns_correct_maximum(versions:Vec<(u64, u64, u64)>) {
             let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
-            let format = strict_semver_extractor();
+            let extractor = strict_semver_extractor();
             let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
-            prop_assert_eq!(format.max(tags), expected_max);
+            prop_assert_eq!(extractor.max(tags), expected_max);
         }
     }
 
     #[test]
     fn removes_all_non_matching_tags() {
         let tags = vec!["1.2.3-debian", "1.2.3", "1.2", "1.2.2-debian", "1.2.2"];
-        let format = strict_semver_extractor();
-        let filtered: Vec<&str> = format.filter(tags).collect();
+        let extractor = strict_semver_extractor();
+        let filtered: Vec<&str> = extractor.filter(tags).collect();
         let expected = vec!["1.2.3", "1.2.2"];
         assert_eq!(filtered, expected);
     }
