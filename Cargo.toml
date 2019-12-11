@@ -2,6 +2,7 @@
 name = "updock"
 version = "0.1.0"
 authors = ["Y0hy0h <Y0hy0h@users.noreply.github.com>"]
+license = "MIT OR Apache-2.0"
 edition = "2018"
 
 [dependencies]
