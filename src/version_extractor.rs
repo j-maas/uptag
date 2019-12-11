@@ -138,7 +138,7 @@ impl VersionExtractor {
     }
 }
 
-// TODO: Test these errors..as_ref()
+// TODO: Test these errors...
 #[derive(Debug, PartialEq)]
 pub enum ExtractionError {
     InvalidGroup,
