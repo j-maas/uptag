@@ -39,12 +39,13 @@ impl TagFetcher for DockerHubTagFetcher {
     type Error = reqwest::Error;
 
     fn fetch(name: ImageName) -> Result<Vec<String>, Self::Error> {
+        let name_path = Self::format_name_for_url(name);
         let url = format!(
             "https://hub.docker.com/v2/repositories/{}/tags/?page_size=25",
-            name
+            name_path
         );
 
-        log::info!("Fetching tags for {}:\n{}", name, url);
+        log::info!("Fetching tags for {}:\n{}", name_path, url);
         let mut response = reqwest::get(&url)?;
         log::debug!("Received response with status `{}`.", response.status());
         log::debug!("Reading JSON body...");
@@ -56,5 +57,14 @@ impl TagFetcher for DockerHubTagFetcher {
             .iter()
             .map(|tag| tag.last_updated.to_string())
             .collect())
+    }
+}
+
+impl DockerHubTagFetcher {
+    fn format_name_for_url(name: ImageName) -> String {
+        match name {
+            ImageName::Official { image } => format!("library/{}", image),
+            ImageName::User { user, image } => format!("{}/{}", user, image),
+        }
     }
 }
