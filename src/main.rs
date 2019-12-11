@@ -1,8 +1,8 @@
-use updock::ImageName;
-use updock::{DockerHubTagFetcher, TagFetcher};
-
 use env_logger;
 use std::error::Error;
+
+use updock::ImageName;
+use updock::{DockerHubTagFetcher, TagFetcher};
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
