@@ -296,9 +296,9 @@ mod tests {
 
         #[test]
         fn returns_correct_maximum(versions: Vec<SemVer>) {
-            let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
+            let tags = versions.iter().map(display_semver);
             let extractor = strict_semver_extractor();
-            let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
+            let expected_max = versions.iter().max().map(display_semver);
             prop_assert_eq!(extractor.max(tags), Ok(expected_max));
         }
     }
