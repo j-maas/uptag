@@ -93,17 +93,46 @@ impl VersionExtractor {
             .map(Version::new)
     }
 
-    pub fn filter<'a, S: AsRef<str>>(
+    pub fn filter<'a, S>(
         &'a self,
         candidates: impl IntoIterator<Item = S> + 'a,
-    ) -> impl Iterator<Item = S> + 'a {
+    ) -> impl Iterator<Item = S> + 'a
+    where
+        S: AsRef<str>,
+    {
         candidates
             .into_iter()
             .filter(move |candidate| self.matches(candidate.as_ref()))
     }
 
-    pub fn max<S: AsRef<str> + Ord>(&self, candidates: impl IntoIterator<Item = S>) -> Option<S> {
-        self.filter(candidates).max()
+    pub fn extract<'a, S>(
+        &'a self,
+        candidates: impl IntoIterator<Item = S> + 'a,
+    ) -> impl Iterator<Item = Result<(Version, S), ExtractionError>> + 'a
+    where
+        S: AsRef<str>,
+    {
+        candidates.into_iter().filter_map(move |candidate| {
+            self.extract_from(candidate.as_ref())
+                .transpose()
+                .map(|result| result.map(|version| (version, candidate)))
+        })
+    }
+
+    pub fn max<S>(
+        &self,
+        candidates: impl IntoIterator<Item = S>,
+    ) -> Result<Option<S>, ExtractionError>
+    where
+        S: AsRef<str> + Ord,
+    {
+        let result: Result<Vec<(Version, S)>, ExtractionError> = self.extract(candidates).collect();
+        result.map(|versions| {
+            versions
+                .into_iter()
+                .max_by(|a, b| a.0.cmp(&b.0))
+                .map(|(_, tag)| tag)
+        })
     }
 }
 
@@ -199,7 +228,7 @@ mod tests {
             let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
             let extractor = strict_semver_extractor();
             let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
-            prop_assert_eq!(extractor.max(tags), expected_max);
+            prop_assert_eq!(extractor.max(tags), Ok(expected_max));
         }
     }
 
