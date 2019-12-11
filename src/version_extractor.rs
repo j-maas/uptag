@@ -123,7 +123,7 @@ mod tests {
     use proptest::prelude::*;
 
     macro_rules! prop_assert_matches {
-        ($format:ident, $string:expr) => {
+        ($format:expr, $string:expr) => {
             prop_assert!(
                 $format.matches($string),
                 "{:?} did not match '{:?}'.",
@@ -134,7 +134,7 @@ mod tests {
     }
 
     macro_rules! prop_assert_no_match {
-        ($format:ident, $string:expr) => {
+        ($format:expr, $string:expr) => {
             prop_assert!(
                 !$format.matches($string),
                 "{:?} should not match '{}'.",
@@ -144,28 +144,29 @@ mod tests {
         };
     }
 
+    fn strict_semver_extractor() -> VersionExtractor {
+        VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap()
+    }
+
     proptest! {
         #[test]
         fn detects_simple_semver(valid in r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+") {
-            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
-            prop_assert_matches!(format, &valid);
+            prop_assert_matches!(strict_semver_extractor(), &valid);
         }
 
         #[test]
         fn rejects_simple_semver_with_prefix(invalid in r"\PC*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*") {
-            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
-            prop_assert_no_match!(format, &invalid);
+            prop_assert_no_match!(strict_semver_extractor(), &invalid);
         }
 
         #[test]
         fn rejects_simple_semver_with_suffix(invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]]\PC*") {
-            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
-            prop_assert_no_match!(format, &invalid);
+            prop_assert_no_match!(strict_semver_extractor(), &invalid);
         }
 
         #[test]
         fn extracts_semver(major: u64, minor: u64, patch: u64, suffix in r"[^\d]\PC*") {
-            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)+").unwrap();
+            let format = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
             let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
             let version = Version { parts: vec![major, minor, patch]};
             prop_assert_eq!(format.extract_from(&candidate), Ok(Some(version)));
@@ -173,9 +174,18 @@ mod tests {
 
         #[test]
         fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
-            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)+").unwrap();
-            let filtered: Vec<String> = format.filter(&tags).into_iter().cloned().collect();
+            let format = strict_semver_extractor();
+            let filtered = format.filter(tags.clone());
             prop_assert_eq!(filtered, tags);
         }
+    }
+
+    #[test]
+    fn removes_all_non_matching_tags() {
+        let tags = vec!["1.2.3-debian", "1.2.3", "1.2", "1.2.2-debian", "1.2.2"];
+        let format = strict_semver_extractor();
+        let filtered = format.filter(tags);
+        let expected = vec!["1.2.3", "1.2.2"];
+        assert_eq!(filtered, expected);
     }
 }
