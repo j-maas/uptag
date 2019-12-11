@@ -10,7 +10,7 @@ use updock::{DockerHubTagFetcher, TagFetcher};
 #[derive(Debug, StructOpt)]
 struct Opt {
     #[structopt(short, long)]
-    image: String,
+    image: ImageName,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -18,8 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let opt = Opt::from_args();
 
-    let name = ImageName::new(&opt.image).unwrap();
-    let tags = DockerHubTagFetcher::fetch(name)?;
+    let tags = DockerHubTagFetcher::fetch(opt.image)?;
 
     let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$")?;
 

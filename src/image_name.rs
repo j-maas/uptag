@@ -1,3 +1,5 @@
+use std::fmt;
+
 use regex::Regex;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -23,6 +25,32 @@ impl ImageName {
         })
     }
 }
+
+impl std::str::FromStr for ImageName {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s).ok_or(ParseError {
+            invalid: s.to_string(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    invalid: String,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "`{}` is not a valid image name of the form `<image>` or `<user>/<image>`.",
+            self.invalid
+        )
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod test {
