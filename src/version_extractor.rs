@@ -174,8 +174,32 @@ impl Version {
 mod tests {
     use super::*;
 
+    use std::borrow::Borrow;
+
     use itertools::Itertools;
     use proptest::prelude::*;
+
+    type SemVer = (VersionPart, VersionPart, VersionPart);
+
+    fn display_semver<S>(version: S) -> String
+    where
+        S: Borrow<SemVer>,
+    {
+        let version = version.borrow();
+        format!("{}.{}.{}", version.0, version.1, version.2)
+    }
+
+    impl<S> From<S> for Version
+    where
+        S: Borrow<SemVer>,
+    {
+        fn from(other: S) -> Self {
+            let other = other.borrow();
+            Version {
+                parts: vec![other.0, other.1, other.2],
+            }
+        }
+    }
 
     macro_rules! prop_assert_matches {
         ($extractor:expr, $string:expr) => {
@@ -220,10 +244,10 @@ mod tests {
         }
 
         #[test]
-        fn extracts_semver(major: u64, minor: u64, patch: u64, suffix in r"[^\d]\PC*") {
+        fn extracts_semver(version: SemVer, suffix in r"[^\d]\PC*") {
             let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
-            let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
-            let version = Version { parts: vec![major, minor, patch]};
+            let candidate = format!("{}{}", display_semver(version), suffix);
+            let version = Version::from(version);
             prop_assert_eq!(extractor.extract_from(&candidate), Ok(Some(version)));
         }
 
@@ -245,8 +269,18 @@ mod tests {
             assert_eq!(filtered, valids);
         }
 
+
         #[test]
-        fn returns_correct_maximum(versions:Vec<(u64, u64, u64)>) {
+        fn extracts_all_matching_semver_tags(versions: Vec<SemVer>) {
+            let tags: Vec<String> = versions.iter().map(display_semver).collect();
+            let extractor = strict_semver_extractor();
+            let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
+            let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
+            prop_assert_eq!(filtered, Ok(expected));
+        }
+
+        #[test]
+        fn returns_correct_maximum(versions: Vec<SemVer>) {
             let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
             let extractor = strict_semver_extractor();
             let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
