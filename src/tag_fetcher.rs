@@ -54,8 +54,8 @@ impl TagFetcher for DockerHubTagFetcher {
 
         Ok(response
             .results
-            .iter()
-            .map(|tag| tag.last_updated.to_string())
+            .into_iter()
+            .map(|tag| tag.name)
             .collect())
     }
 }
