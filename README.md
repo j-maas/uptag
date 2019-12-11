@@ -1,5 +1,5 @@
 # updock: Update Dockerfiles.
-![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
+[![GitHub Workflow Status](https://img.shields.io/github/workflow/status/Y0hy0h/updock/Rust)](https://github.com/Y0hy0h/updock/actions) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 
 Enables detection of updates to a Dockerfile's base image.
 
