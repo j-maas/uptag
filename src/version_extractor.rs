@@ -1,3 +1,5 @@
+use std::fmt;
+
 use regex::Regex;
 
 /// A version format detecting and comparing versions.
@@ -142,6 +144,14 @@ pub enum ExtractionError {
     InvalidGroup,
     EmptyVersion,
 }
+
+impl fmt::Display for ExtractionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "An error occurred while extracting a version.")
+    }
+}
+
+impl std::error::Error for ExtractionError {}
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Version {
