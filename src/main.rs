@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use env_logger;
+use regex::Regex;
 use structopt::StructOpt;
 
 use updock::ImageName;
@@ -11,6 +12,8 @@ use updock::{DockerHubTagFetcher, TagFetcher};
 struct Opt {
     #[structopt(short, long)]
     image: ImageName,
+    #[structopt(short, long)]
+    pattern: Regex,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -20,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let tags = DockerHubTagFetcher::fetch(opt.image)?;
 
-    let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$")?;
+    let extractor = VersionExtractor::from(opt.pattern);
 
     match extractor.max(tags)? {
         Some(newest) => println!("{}", newest),
