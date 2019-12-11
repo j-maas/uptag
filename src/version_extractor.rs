@@ -60,7 +60,7 @@ impl VersionExtractor {
     }
 
     pub fn matches(&self, candidate: &str) -> bool {
-        self.regex.is_match(candidate.as_ref())
+        self.regex.is_match(candidate)
     }
 
     pub fn extract_from(&self, candidate: &str) -> Result<Option<Version>, ExtractionError> {
@@ -83,9 +83,16 @@ impl VersionExtractor {
             .collect::<Result<Vec<VersionPart>, ExtractionError>>()
             .map(Version::new)
     }
+
+    pub fn filter<S: AsRef<str>>(&self, candidates: impl IntoIterator<Item = S>) -> Vec<S> {
+        candidates
+            .into_iter()
+            .filter(|candidate| self.matches(candidate.as_ref()))
+            .collect()
+    }
 }
 
-// TODO: Test these errors.
+// TODO: Test these errors..as_ref()
 #[derive(Debug, PartialEq)]
 pub enum ExtractionError {
     InvalidGroup,
@@ -162,6 +169,13 @@ mod tests {
             let candidate = format!("{}.{}.{}{}", major, minor, patch, suffix);
             let version = Version { parts: vec![major, minor, patch]};
             prop_assert_eq!(format.extract_from(&candidate), Ok(Some(version)));
+        }
+
+        #[test]
+        fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
+            let format = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)+").unwrap();
+            let filtered: Vec<String> = format.filter(&tags).into_iter().cloned().collect();
+            prop_assert_eq!(filtered, tags);
         }
     }
 }
