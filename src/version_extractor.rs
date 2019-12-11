@@ -49,9 +49,12 @@ pub struct VersionExtractor {
 }
 
 impl VersionExtractor {
-    pub fn parse(regex: &str) -> Result<VersionExtractor, regex::Error> {
+    pub fn parse<S>(regex: S) -> Result<VersionExtractor, regex::Error>
+    where
+        S: AsRef<str>,
+    {
         Ok(VersionExtractor {
-            regex: Regex::new(regex)?,
+            regex: Regex::new(regex.as_ref())?,
         })
     }
 
@@ -59,13 +62,19 @@ impl VersionExtractor {
         VersionExtractor { regex }
     }
 
-    pub fn matches(&self, candidate: &str) -> bool {
-        self.regex.is_match(candidate)
+    pub fn matches<S>(&self, candidate: S) -> bool
+    where
+        S: AsRef<str>,
+    {
+        self.regex.is_match(candidate.as_ref())
     }
 
-    pub fn extract_from(&self, candidate: &str) -> Result<Option<Version>, ExtractionError> {
+    pub fn extract_from<S>(&self, candidate: S) -> Result<Option<Version>, ExtractionError>
+    where
+        S: AsRef<str>,
+    {
         self.regex
-            .captures_iter(candidate)
+            .captures_iter(candidate.as_ref())
             .flat_map(|capture| {
                 capture
                     .iter()
