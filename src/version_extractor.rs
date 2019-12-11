@@ -84,11 +84,17 @@ impl VersionExtractor {
             .map(Version::new)
     }
 
-    pub fn filter<S: AsRef<str>>(&self, candidates: impl IntoIterator<Item = S>) -> Vec<S> {
+    pub fn filter<'a, S: AsRef<str>>(
+        &'a self,
+        candidates: impl IntoIterator<Item = S> + 'a,
+    ) -> impl Iterator<Item = S> + 'a {
         candidates
             .into_iter()
-            .filter(|candidate| self.matches(candidate.as_ref()))
-            .collect()
+            .filter(move |candidate| self.matches(candidate.as_ref()))
+    }
+
+    pub fn max<S: AsRef<str> + Ord>(&self, candidates: impl IntoIterator<Item = S>) -> Option<S> {
+        self.filter(candidates).max()
     }
 }
 
@@ -175,7 +181,7 @@ mod tests {
         #[test]
         fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
             let format = strict_semver_extractor();
-            let filtered = format.filter(tags.clone());
+            let filtered: Vec<String> = format.filter(tags.clone()).collect();
             prop_assert_eq!(filtered, tags);
         }
     }
@@ -184,8 +190,15 @@ mod tests {
     fn removes_all_non_matching_tags() {
         let tags = vec!["1.2.3-debian", "1.2.3", "1.2", "1.2.2-debian", "1.2.2"];
         let format = strict_semver_extractor();
-        let filtered = format.filter(tags);
+        let filtered: Vec<&str> = format.filter(tags).collect();
         let expected = vec!["1.2.3", "1.2.2"];
         assert_eq!(filtered, expected);
+    }
+
+    #[test]
+    fn returns_correct_maximum() {
+        let tags = vec!["1.2.3", "2.0.1", "2.1.2", "2.1.1"];
+        let format = strict_semver_extractor();
+        assert_eq!(format.max(tags), Some("2.1.2"));
     }
 }
