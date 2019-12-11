@@ -174,6 +174,7 @@ impl Version {
 mod tests {
     use super::*;
 
+    use itertools::Itertools;
     use proptest::prelude::*;
 
     macro_rules! prop_assert_matches {
@@ -234,20 +235,22 @@ mod tests {
         }
 
         #[test]
+        fn removes_all_non_matching_tags(
+            valids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+"),
+            invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian"))
+        {
+            let tags = valids.clone().into_iter().interleave(invalids.into_iter());
+            let extractor = strict_semver_extractor();
+            let filtered: Vec<String> = extractor.filter(tags).collect();
+            assert_eq!(filtered, valids);
+        }
+
+        #[test]
         fn returns_correct_maximum(versions:Vec<(u64, u64, u64)>) {
             let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
             let extractor = strict_semver_extractor();
             let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
             prop_assert_eq!(extractor.max(tags), Ok(expected_max));
         }
-    }
-
-    #[test]
-    fn removes_all_non_matching_tags() {
-        let tags = vec!["1.2.3-debian", "1.2.3", "1.2", "1.2.2-debian", "1.2.2"];
-        let extractor = strict_semver_extractor();
-        let filtered: Vec<&str> = extractor.filter(tags).collect();
-        let expected = vec!["1.2.3", "1.2.2"];
-        assert_eq!(filtered, expected);
     }
 }
