@@ -184,6 +184,14 @@ mod tests {
             let filtered: Vec<String> = format.filter(tags.clone()).collect();
             prop_assert_eq!(filtered, tags);
         }
+
+        #[test]
+        fn returns_correct_maximum(versions:Vec<(u64, u64, u64)>) {
+            let tags = versions.iter().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
+            let format = strict_semver_extractor();
+            let expected_max = versions.iter().max().map(|(major, minor, patch)| format!("{}.{}.{}", major, minor, patch));
+            prop_assert_eq!(format.max(tags), expected_max);
+        }
     }
 
     #[test]
@@ -193,12 +201,5 @@ mod tests {
         let filtered: Vec<&str> = format.filter(tags).collect();
         let expected = vec!["1.2.3", "1.2.2"];
         assert_eq!(filtered, expected);
-    }
-
-    #[test]
-    fn returns_correct_maximum() {
-        let tags = vec!["1.2.3", "2.0.1", "2.1.2", "2.1.1"];
-        let format = strict_semver_extractor();
-        assert_eq!(format.max(tags), Some("2.1.2"));
     }
 }
