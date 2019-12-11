@@ -234,12 +234,16 @@ mod tests {
         }
 
         #[test]
-        fn rejects_simple_semver_with_prefix(invalid in r"\PC*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*") {
+        fn rejects_simple_semver_with_prefix(
+            invalid in r"\PC*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*"
+        ) {
             prop_assert_no_match!(strict_semver_extractor(), &invalid);
         }
 
         #[test]
-        fn rejects_simple_semver_with_suffix(invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]]\PC*") {
+        fn rejects_simple_semver_with_suffix(
+            invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]]\PC*"
+        ) {
             prop_assert_no_match!(strict_semver_extractor(), &invalid);
         }
 
@@ -269,10 +273,21 @@ mod tests {
             assert_eq!(filtered, valids);
         }
 
-
         #[test]
         fn extracts_all_matching_semver_tags(versions: Vec<SemVer>) {
             let tags: Vec<String> = versions.iter().map(display_semver).collect();
+            let extractor = strict_semver_extractor();
+            let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
+            let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
+            prop_assert_eq!(filtered, Ok(expected));
+        }
+
+        #[test]
+        fn extracts_only_matching_semver_tags(
+            versions: Vec<SemVer>,
+            invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian")
+        ) {
+            let tags: Vec<String> = versions.iter().map(display_semver).interleave(invalids.into_iter()).collect();
             let extractor = strict_semver_extractor();
             let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
             let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
