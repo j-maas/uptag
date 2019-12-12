@@ -50,6 +50,12 @@ pub struct VersionExtractor {
     regex: Regex,
 }
 
+impl fmt::Display for VersionExtractor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.regex)
+    }
+}
+
 impl VersionExtractor {
     pub fn parse<S>(regex: S) -> Result<VersionExtractor, regex::Error>
     where
