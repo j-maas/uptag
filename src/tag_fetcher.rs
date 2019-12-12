@@ -21,11 +21,11 @@ pub struct DockerHubTagFetcher {}
 #[derive(Deserialize, Debug)]
 struct Response {
     next: String,
-    results: Vec<TagInfo>,
+    results: Vec<TagFromStatement>,
 }
 
 #[derive(Deserialize, Debug)]
-struct TagInfo {
+struct TagFromStatement {
     name: String,
     id: u32,
     #[serde(deserialize_with = "naive_date_time_from_str")]

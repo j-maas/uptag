@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use env_logger;
 use structopt::StructOpt;
 
+use updock::FromStatement;
 use updock::ImageName;
-use updock::Info;
 use updock::VersionExtractor;
 use updock::{DockerHubTagFetcher, Page, TagFetcher};
 
@@ -93,19 +93,19 @@ fn check(default_extractor: &VersionExtractor) -> Result<()> {
 
     let output: Vec<String> = result
         .into_iter()
-        .map(|(maybe_tag, info)| match maybe_tag {
+        .map(|(maybe_tag, statement)| match maybe_tag {
             Some(tag) => format!(
                 "Current: `{}:{}`. Newest matching tag: `{}`.",
-                info.image, info.tag, tag
+                statement.image, statement.tag, tag
             ),
             None => {
-                let pattern = match info.extractor {
+                let pattern = match statement.extractor {
                     Some(extractor) => extractor.to_string(),
                     None => default_extractor.to_string(),
                 };
                 format!(
                     "Current: `{}:{}`. No tag matching `{}` found. (Searched latest {} tags.)",
-                    info.image, info.tag, pattern, amount
+                    statement.image, statement.tag, pattern, amount
                 )
             }
         })
@@ -127,21 +127,25 @@ fn upgrade(dockerfile: PathBuf, default_extractor: VersionExtractor) -> Result<(
         input.lines(),
         amount,
         &default_extractor,
-        |line, extraction| match extraction {
+        |line, maybe_extraction| match maybe_extraction {
             None => line,
-            Some(extraction_info) => match extraction_info.newest_tag {
+            Some(extraction) => match extraction.newest_tag {
                 None => {
-                    eprintln!("Could not find any matching tag for image {}. (Searched the latest {} tags.) Current tag `{}` will be kept.", extraction_info.info, amount, extraction_info.info.tag);
-                    format!("{}", extraction_info.info)
+                    let pattern = match &extraction.statement.extractor {
+                        Some(extractor) => format!("{}", extractor),
+                        None => format!("{}", default_extractor),
+                    };
+                    eprintln!("Could not find any tag for image {} matching `{}`. (Searched the latest {} tags.) Current tag `{}` will be kept.", extraction.statement.image,pattern, amount, extraction.statement.tag);
+                    format!("{}", extraction.statement)
                 }
                 Some(update) => {
-                    let mut info = extraction_info.info;
+                    let mut statement = extraction.statement;
                     println!(
                         "Upgrading image {} from `{}` to `{}`.",
-                        info.image, info.tag, update
+                        statement.image, statement.tag, update
                     );
-                    info.tag = update;
-                    format!("{}", info)
+                    statement.tag = update;
+                    format!("{}", statement)
                 }
             },
         },
@@ -152,8 +156,8 @@ fn upgrade(dockerfile: PathBuf, default_extractor: VersionExtractor) -> Result<(
     Ok(())
 }
 
-struct ExtractionInfo {
-    info: Info,
+struct ExtractionFromStatement {
+    statement: FromStatement,
     newest_tag: Option<String>,
 }
 
@@ -161,13 +165,13 @@ fn extract(
     lines: impl IntoIterator<Item = impl AsRef<str>>,
     amount: u32,
     default_extractor: &VersionExtractor,
-) -> Result<Vec<(Option<String>, Info)>> {
+) -> Result<Vec<(Option<String>, FromStatement)>> {
     Ok(
         map_extraction(lines, amount, default_extractor, |_, maybe_extraction| {
-            maybe_extraction.map(|extraction| (extraction.newest_tag, extraction.info))
+            maybe_extraction.map(|extraction| (extraction.newest_tag, extraction.statement))
         })?
         .into_iter()
-        .filter_map(|info| info)
+        .filter_map(|statement| statement)
         .collect(),
     )
 }
@@ -176,28 +180,32 @@ fn map_extraction<T>(
     lines: impl IntoIterator<Item = impl AsRef<str>>,
     amount: u32,
     default_extractor: &VersionExtractor,
-    mut process: impl FnMut(String, Option<ExtractionInfo>) -> T,
+    mut process: impl FnMut(String, Option<ExtractionFromStatement>) -> T,
 ) -> Result<Vec<T>> {
     lines
         .into_iter()
         .map(|line| {
-            let extracted: Result<Option<ExtractionInfo>> = Info::extract_from(&line)?
-                .map(|info| {
-                    let tags = DockerHubTagFetcher::fetch(
-                        &info.image,
-                        &Page {
-                            size: amount,
-                            page: 1,
-                        },
-                    )?;
+            let extracted: Result<Option<ExtractionFromStatement>> =
+                FromStatement::extract_from(&line)?
+                    .map(|statement| {
+                        let tags = DockerHubTagFetcher::fetch(
+                            &statement.image,
+                            &Page {
+                                size: amount,
+                                page: 1,
+                            },
+                        )?;
 
-                    let newest_tag = match &info.extractor {
-                        Some(extractor) => extractor.max(tags)?,
-                        None => default_extractor.max(tags)?,
-                    };
-                    Ok(ExtractionInfo { info, newest_tag })
-                })
-                .transpose();
+                        let newest_tag = match &statement.extractor {
+                            Some(extractor) => extractor.max(tags)?,
+                            None => default_extractor.max(tags)?,
+                        };
+                        Ok(ExtractionFromStatement {
+                            statement,
+                            newest_tag,
+                        })
+                    })
+                    .transpose();
             Ok(process(line.as_ref().to_string(), extracted?))
         })
         .collect()
