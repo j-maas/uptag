@@ -3,7 +3,6 @@ use std::io;
 use std::io::prelude::*;
 
 use env_logger;
-use regex::Regex;
 use structopt::StructOpt;
 
 use updock::ImageName;
@@ -22,7 +21,7 @@ struct FetchOpts {
     #[structopt(short, long)]
     image: ImageName,
     #[structopt(short, long)]
-    pattern: Option<Regex>,
+    pattern: Option<VersionExtractor>,
     #[structopt(short, long, default_value = "25")]
     amount: u32,
 }
@@ -30,7 +29,7 @@ struct FetchOpts {
 #[derive(Debug, StructOpt)]
 struct CheckOpts {
     #[structopt(short, long)]
-    default_pattern: Regex,
+    default_pattern: VersionExtractor,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -45,7 +44,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<dyn Error>> {
+fn fetch(
+    image: ImageName,
+    pattern: Option<VersionExtractor>,
+    amount: u32,
+) -> Result<(), Box<dyn Error>> {
     let tags = DockerHubTagFetcher::fetch(
         &image,
         &Page {
@@ -54,8 +57,7 @@ fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<
         },
     )?;
 
-    let result = if let Some(pattern) = regex {
-        let extractor = VersionExtractor::from(pattern);
+    let result = if let Some(extractor) = pattern {
         let result: Vec<String> = extractor.filter(tags).collect();
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
@@ -74,7 +76,7 @@ fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<
     Ok(())
 }
 
-fn check(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
+fn check(default_extractor: VersionExtractor) -> Result<(), Box<dyn Error>> {
     let stdin = io::stdin();
     let info_result: Result<Vec<Vec<Info>>, Box<dyn Error>> = stdin
         .lock()
@@ -82,7 +84,6 @@ fn check(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
         .map(|line| Ok(Info::extract_from(line?)?))
         .collect();
 
-    let cli_extractor = VersionExtractor::from(default_pattern);
     let amount = 25;
     type ExtractionResult = Result<Vec<(Option<String>, Info)>, Box<dyn Error>>;
     let result: ExtractionResult = info_result?
@@ -99,7 +100,7 @@ fn check(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
 
             let maybe_newest = match &info.extractor {
                 Some(extractor) => extractor.max(tags)?,
-                None => cli_extractor.max(tags)?,
+                None => default_extractor.max(tags)?,
             };
             Ok((maybe_newest, info))
         })
@@ -114,7 +115,7 @@ fn check(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
             None => {
                 let pattern = match info.extractor {
                     Some(extractor) => extractor.to_string(),
-                    None => cli_extractor.to_string(),
+                    None => default_extractor.to_string(),
                 };
                 format!(
                     "Current: `{}:{}`. No tag matching `{}` found. (Searched latest {} tags.)",

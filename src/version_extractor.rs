@@ -56,6 +56,13 @@ impl fmt::Display for VersionExtractor {
     }
 }
 
+impl std::str::FromStr for VersionExtractor {
+    type Err = regex::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 pub trait Tagged {
     fn tag(&self) -> &str;
 }
