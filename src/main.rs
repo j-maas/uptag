@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::io::prelude::*;
@@ -123,20 +122,39 @@ fn check(default_extractor: &VersionExtractor) -> Result<()> {
 fn upgrade(dockerfile: PathBuf, default_extractor: VersionExtractor) -> Result<()> {
     let input = std::fs::read_to_string(&dockerfile)?;
 
-    let updates = extract(input.lines(), 25, &default_extractor)?;
-    let replacements: HashMap<ImageName, String> = updates
-        .iter()
-        .filter_map(|(maybe_tag, info)| {
-            maybe_tag
-                .as_ref()
-                .map(|tag| (info.image.clone(), tag.clone()))
-        })
-        .collect();
-    let output = Info::replace(input, replacements);
+    let amount = 25;
+    let output = map_extraction(
+        input.lines(),
+        amount,
+        &default_extractor,
+        |line, extraction| match extraction {
+            None => line,
+            Some(extraction_info) => match extraction_info.newest_tag {
+                None => {
+                    eprintln!("Could not find any matching tag for image {}. (Searched the latest {} tags.) Current tag `{}` will be kept.", extraction_info.info, amount, extraction_info.info.tag);
+                    format!("{}", extraction_info.info)
+                }
+                Some(update) => {
+                    let mut info = extraction_info.info;
+                    println!(
+                        "Upgrading image {} from `{}` to `{}`.",
+                        info.image, info.tag, update
+                    );
+                    info.tag = update;
+                    format!("{}", info)
+                }
+            },
+        },
+    )?;
 
-    std::fs::write(&dockerfile, output)?;
+    std::fs::write(&dockerfile, output.join("\n"))?;
 
     Ok(())
+}
+
+struct ExtractionInfo {
+    info: Info,
+    newest_tag: Option<String>,
 }
 
 fn extract(
@@ -144,12 +162,27 @@ fn extract(
     amount: u32,
     default_extractor: &VersionExtractor,
 ) -> Result<Vec<(Option<String>, Info)>> {
-    type MaybeExtraction = Option<(Option<String>, Info)>;
-    let results: Result<Vec<MaybeExtraction>> = lines
+    Ok(
+        map_extraction(lines, amount, default_extractor, |_, maybe_extraction| {
+            maybe_extraction.map(|extraction| (extraction.newest_tag, extraction.info))
+        })?
+        .into_iter()
+        .filter_map(|info| info)
+        .collect(),
+    )
+}
+
+fn map_extraction<T>(
+    lines: impl IntoIterator<Item = impl AsRef<str>>,
+    amount: u32,
+    default_extractor: &VersionExtractor,
+    mut process: impl FnMut(String, Option<ExtractionInfo>) -> T,
+) -> Result<Vec<T>> {
+    lines
         .into_iter()
         .map(|line| {
-            let extracted: Option<Result<(Option<String>, Info)>> =
-                Info::extract_from(line)?.map(|info| {
+            let extracted: Result<Option<ExtractionInfo>> = Info::extract_from(&line)?
+                .map(|info| {
                     let tags = DockerHubTagFetcher::fetch(
                         &info.image,
                         &Page {
@@ -158,16 +191,16 @@ fn extract(
                         },
                     )?;
 
-                    let maybe_newest = match &info.extractor {
+                    let newest_tag = match &info.extractor {
                         Some(extractor) => extractor.max(tags)?,
                         None => default_extractor.max(tags)?,
                     };
-                    Ok((maybe_newest, info))
-                });
-            Ok(extracted.transpose()?)
+                    Ok(ExtractionInfo { info, newest_tag })
+                })
+                .transpose();
+            Ok(process(line.as_ref().to_string(), extracted?))
         })
-        .collect();
-    Ok(results?.into_iter().filter_map(|info| info).collect())
+        .collect()
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;

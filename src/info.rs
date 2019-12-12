@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::fmt;
 
 use regex::Regex;
 
@@ -10,6 +10,16 @@ pub struct Info {
     pub image: ImageName,
     pub tag: String,
     pub extractor: Option<VersionExtractor>,
+}
+
+impl fmt::Display for Info {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let pattern = match &self.extractor {
+            Some(pattern) => format!(" # updock pattern: \"{}\"", pattern.as_str()),
+            None => "".to_string(),
+        };
+        write!(f, "FROM {}:{}{}", self.image, self.tag, pattern)
+    }
 }
 
 impl Info {
@@ -39,27 +49,6 @@ impl Info {
             r#"FROM ((?P<user>[[:word:]]+)/)?(?P<image>[[:word:]]+):(?P<tag>[[:word:][:punct:]]+)(\s*#\s*updock\s+pattern: "(?P<pattern>[^"]*)")?"#,
         )
         .unwrap()
-    }
-
-    // TODO: Test replacement
-    pub fn replace(input: String, replacements: HashMap<ImageName, String>) -> String {
-        Self::info_regex()
-            .replace_all(&input, |captures: &regex::Captures| {
-                let image_name = ImageName::from(
-                    captures.name("user").map(|m| m.as_str().to_string()),
-                    captures.name("image").unwrap().as_str().to_string(),
-                );
-                let tag = match replacements.get(&image_name) {
-                    Some(new_tag) => new_tag.to_string(),
-                    None => captures.name("tag").unwrap().as_str().to_string(),
-                };
-                let pattern = match captures.name("pattern") {
-                    Some(pattern) => format!(" # updock pattern: \"{}\"", pattern.as_str()),
-                    None => "".to_string(),
-                };
-                format!("FROM {}:{}{}", image_name, tag, pattern)
-            })
-            .to_string()
     }
 
     fn extract_from_captures(captures: regex::Captures) -> Result<Info, regex::Error> {
