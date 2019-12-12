@@ -24,6 +24,13 @@ impl ImageName {
             }
         })
     }
+
+    pub fn from(user: Option<String>, image: String) -> ImageName {
+        match user {
+            Some(name) => ImageName::User { user: name, image },
+            None => ImageName::Official { image },
+        }
+    }
 }
 
 impl std::str::FromStr for ImageName {
