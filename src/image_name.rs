@@ -2,7 +2,7 @@ use std::fmt;
 
 use regex::Regex;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum ImageName {
     Official { image: String },
     User { user: String, image: String },
