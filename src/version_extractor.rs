@@ -198,6 +198,18 @@ impl Version {
             Some(Version { parts })
         }
     }
+
+    pub fn should_upgrade_to(&self, other: Self, breaking_degree: usize) -> bool {
+        self.sameness_degree_with(other) >= breaking_degree
+    }
+
+    pub fn sameness_degree_with(&self, other: Self) -> usize {
+        self.parts
+            .iter()
+            .zip(other.parts.iter())
+            .take_while(|(l, r)| l == r)
+            .count()
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +268,8 @@ mod tests {
     fn strict_semver_extractor() -> VersionExtractor {
         VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap()
     }
+
+    // Extraction
 
     proptest! {
         #[test]
@@ -330,6 +344,69 @@ mod tests {
             let extractor = strict_semver_extractor();
             let expected_max = versions.iter().max().map(display_semver);
             prop_assert_eq!(extractor.max(tags), Ok(expected_max));
+        }
+    }
+
+    // Comparison
+
+    prop_compose! {
+        fn version_seq
+            ()
+            (version in prop::collection::vec(0u64..100, 1..10))
+            (index in 0..version.len(), upgrade in 1u64..100, mut version in Just(version))
+            -> (Version, Version)
+        {
+            let smaller = Version::new(version.clone()).unwrap();
+            version[index] += upgrade;
+            let greater = Version::new(version.clone()).unwrap();
+            (smaller, greater)
+        }
+    }
+
+    prop_compose! {
+        fn version_seq_no_break
+            (size: usize, break_degree: usize)
+            (version in prop::collection::vec(0u64..100, size))
+            (index in break_degree..version.len(), upgrade in 1u64..100, mut version in Just(version))
+            -> (Version, Version)
+        {
+            let smaller = Version::new(version.clone()).unwrap();
+            version[index] += upgrade;
+            let greater = Version::new(version.clone()).unwrap();
+            (smaller, greater)
+        }
+    }
+
+    prop_compose! {
+        fn version_seq_with_break
+            (size: usize, break_degree: usize)
+            (version in prop::collection::vec(0u64..100, size))
+            (index in 0..break_degree, upgrade in 1u64..100, mut version in Just(version))
+            -> (Version, Version)
+        {
+            let smaller = Version::new(version.clone()).unwrap();
+            version[index] += upgrade;
+            let greater = Version::new(version.clone()).unwrap();
+            (smaller, greater)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn detects_greater_version(
+            (smaller, greater) in version_seq()
+        ) {
+            prop_assert!(smaller.lt(&greater))
+        }
+
+        #[test]
+        fn allows_nonbreaking_upgrade((smaller, greater) in version_seq_no_break(5, 2)) {
+            prop_assert!(smaller.should_upgrade_to(greater, 2));
+        }
+
+        #[test]
+        fn prevents_breaking_upgrade((smaller, greater) in version_seq_with_break(5, 2)) {
+            prop_assert!(!smaller.should_upgrade_to(greater, 2));
         }
     }
 }
