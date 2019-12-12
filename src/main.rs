@@ -14,7 +14,7 @@ use updock::{DockerHubTagFetcher, Page, TagFetcher};
 #[derive(Debug, StructOpt)]
 enum Opts {
     Fetch(FetchOpts),
-    Match(MatchOpts),
+    Check(CheckOpts),
 }
 
 #[derive(Debug, StructOpt)]
@@ -28,7 +28,7 @@ struct FetchOpts {
 }
 
 #[derive(Debug, StructOpt)]
-struct MatchOpts {
+struct CheckOpts {
     #[structopt(short, long)]
     default_pattern: Regex,
 }
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     use Opts::*;
     match opts {
         Fetch(opts) => fetch(opts.image, opts.pattern, opts.amount),
-        Match(opts) => matching(opts.default_pattern),
+        Check(opts) => check(opts.default_pattern),
     }
 }
 
@@ -74,7 +74,7 @@ fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<
     Ok(())
 }
 
-fn matching(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
+fn check(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
     let stdin = io::stdin();
     let info_result: Result<Vec<Vec<Info>>, Box<dyn Error>> = stdin
         .lock()
