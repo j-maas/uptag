@@ -10,6 +10,7 @@ pub struct FromStatement {
     pub image: ImageName,
     pub tag: String,
     pub extractor: Option<VersionExtractor>,
+    pub breaking_degree: usize,
 }
 
 impl fmt::Display for FromStatement {
@@ -18,7 +19,16 @@ impl fmt::Display for FromStatement {
             Some(pattern) => format!(" # updock pattern: \"{}\"", pattern.as_str()),
             None => "".to_string(),
         };
-        write!(f, "FROM {}:{}{}", self.image, self.tag, pattern)
+        let breaking_degree = if self.breaking_degree == 0 {
+            "".to_string()
+        } else {
+            format!(", breaking degree: {}", self.breaking_degree)
+        };
+        write!(
+            f,
+            "FROM {}:{}{}{}",
+            self.image, self.tag, pattern, breaking_degree
+        )
     }
 }
 
@@ -46,7 +56,7 @@ impl FromStatement {
     fn statement_regex() -> Regex {
         // TODO: Document that regexs can't contain ", not even escaped.
         Regex::new(
-            r#"FROM ((?P<user>[[:word:]]+)/)?(?P<image>[[:word:]]+):(?P<tag>[[:word:][:punct:]]+)(\s*#\s*updock\s+pattern: "(?P<pattern>[^"]*)")?"#,
+            r#"FROM ((?P<user>[[:word:]]+)/)?(?P<image>[[:word:]]+):(?P<tag>[[:word:][:punct:]]+)(\s*#\s*updock\s+pattern: "(?P<pattern>[^"]*)"(,\s+breaking\s+degree:\s+(?P<breaking_degree>\d+))?)?"#,
         )
         .unwrap()
     }
@@ -57,13 +67,18 @@ impl FromStatement {
         let tag = captures.name("tag").unwrap().as_str().into();
         let extractor = captures
             .name("pattern")
-            .map(|r| VersionExtractor::parse(r.as_str()))
+            .map(|m| VersionExtractor::parse(m.as_str()))
             .transpose()?;
+        let breaking_degree = captures
+            .name("breaking_degree")
+            .map(|m| m.as_str().parse().unwrap())
+            .unwrap_or(0);
 
         Ok(FromStatement {
             image: ImageName::from(maybe_user, image),
             tag,
             extractor,
+            breaking_degree,
         })
     }
 }
@@ -92,7 +107,7 @@ mod test {
     #[test]
     fn extracts_full_statement() {
         let dockerfile =
-            "FROM bitnami/dokuwiki:2.3.12  # updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)$\"";
+            "FROM bitnami/dokuwiki:2.3.12  # updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)$\", breaking degree: 1";
         assert_eq!(
             FromStatement::extract_from(dockerfile),
             Ok(Some(FromStatement {
@@ -101,7 +116,8 @@ mod test {
                     image: "dokuwiki".into()
                 },
                 tag: "2.3.12".into(),
-                extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap())
+                extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap()),
+                breaking_degree: 1,
             }))
         )
     }
@@ -116,7 +132,8 @@ mod test {
                     image: "ubuntu".into()
                 },
                 tag: "14.04".into(),
-                extractor: None
+                extractor: None,
+                breaking_degree: 0,
             }))
         )
     }
@@ -144,7 +161,8 @@ mod test {
                     image: "ubuntu".into()
                 },
                 tag: "14.04".into(),
-                extractor: None
+                extractor: None,
+                breaking_degree: 0,
             }))
         )
     }
