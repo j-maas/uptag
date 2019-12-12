@@ -33,6 +33,16 @@ impl ImageName {
     }
 }
 
+impl fmt::Display for ImageName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ImageName::*;
+        match self {
+            Official { image } => write!(f, "{}", image),
+            User { user, image } => write!(f, "{}/{}", user, image),
+        }
+    }
+}
+
 impl std::str::FromStr for ImageName {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {

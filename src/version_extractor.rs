@@ -52,11 +52,28 @@ pub struct VersionExtractor {
 
 impl fmt::Display for VersionExtractor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.regex)
+        write!(f, "{}", self.as_str())
+    }
+}
+
+pub trait Tagged {
+    fn tag(&self) -> &str;
+}
+
+impl<S> Tagged for S
+where
+    S: AsRef<str>,
+{
+    fn tag(&self) -> &str {
+        self.as_ref()
     }
 }
 
 impl VersionExtractor {
+    pub fn as_str(&self) -> &str {
+        self.regex.as_str()
+    }
+
     pub fn parse<S>(regex: S) -> Result<VersionExtractor, regex::Error>
     where
         S: AsRef<str>,
@@ -70,19 +87,19 @@ impl VersionExtractor {
         VersionExtractor { regex }
     }
 
-    pub fn matches<S>(&self, candidate: S) -> bool
+    pub fn matches<T>(&self, candidate: T) -> bool
     where
-        S: AsRef<str>,
+        T: Tagged,
     {
-        self.regex.is_match(candidate.as_ref())
+        self.regex.is_match(candidate.tag())
     }
 
-    pub fn extract_from<S>(&self, candidate: S) -> Result<Option<Version>, ExtractionError>
+    pub fn extract_from<T>(&self, candidate: T) -> Result<Option<Version>, ExtractionError>
     where
-        S: AsRef<str>,
+        T: Tagged,
     {
         self.regex
-            .captures_iter(candidate.as_ref())
+            .captures_iter(candidate.tag())
             .flat_map(|capture| {
                 capture
                     .iter()
@@ -101,40 +118,40 @@ impl VersionExtractor {
             .map(Version::new)
     }
 
-    pub fn filter<'a, S>(
+    pub fn filter<'a, T>(
         &'a self,
-        candidates: impl IntoIterator<Item = S> + 'a,
-    ) -> impl Iterator<Item = S> + 'a
+        candidates: impl IntoIterator<Item = T> + 'a,
+    ) -> impl Iterator<Item = T> + 'a
     where
-        S: AsRef<str>,
+        T: Tagged,
     {
         candidates
             .into_iter()
-            .filter(move |candidate| self.matches(candidate.as_ref()))
+            .filter(move |candidate| self.matches(candidate.tag()))
     }
 
-    pub fn extract<'a, S>(
+    pub fn extract<'a, T>(
         &'a self,
-        candidates: impl IntoIterator<Item = S> + 'a,
-    ) -> impl Iterator<Item = Result<(Version, S), ExtractionError>> + 'a
+        candidates: impl IntoIterator<Item = T> + 'a,
+    ) -> impl Iterator<Item = Result<(Version, T), ExtractionError>> + 'a
     where
-        S: AsRef<str>,
+        T: Tagged,
     {
         candidates.into_iter().filter_map(move |candidate| {
-            self.extract_from(candidate.as_ref())
+            self.extract_from(candidate.tag())
                 .transpose()
                 .map(|result| result.map(|version| (version, candidate)))
         })
     }
 
-    pub fn max<S>(
+    pub fn max<T>(
         &self,
-        candidates: impl IntoIterator<Item = S>,
-    ) -> Result<Option<S>, ExtractionError>
+        candidates: impl IntoIterator<Item = T>,
+    ) -> Result<Option<T>, ExtractionError>
     where
-        S: AsRef<str> + Ord,
+        T: Tagged,
     {
-        let result: Result<Vec<(Version, S)>, ExtractionError> = self.extract(candidates).collect();
+        let result: Result<Vec<(Version, T)>, ExtractionError> = self.extract(candidates).collect();
         result.map(|versions| {
             versions
                 .into_iter()

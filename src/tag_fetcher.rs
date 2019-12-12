@@ -8,7 +8,7 @@ use crate::image_name::ImageName;
 pub trait TagFetcher {
     type Error;
 
-    fn fetch(image: ImageName, page: Page) -> Result<Vec<String>, Self::Error>;
+    fn fetch(image: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error>;
 }
 
 pub struct Page {
@@ -43,7 +43,7 @@ where
 impl TagFetcher for DockerHubTagFetcher {
     type Error = reqwest::Error;
 
-    fn fetch(name: ImageName, page: Page) -> Result<Vec<String>, Self::Error> {
+    fn fetch(name: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error> {
         let name_path = Self::format_name_for_url(name);
         let url = format!(
             "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}",
@@ -62,7 +62,7 @@ impl TagFetcher for DockerHubTagFetcher {
 }
 
 impl DockerHubTagFetcher {
-    fn format_name_for_url(name: ImageName) -> String {
+    fn format_name_for_url(name: &ImageName) -> String {
         match name {
             ImageName::Official { image } => format!("library/{}", image),
             ImageName::User { user, image } => format!("{}/{}", user, image),

@@ -30,7 +30,7 @@ struct FetchOpts {
 #[derive(Debug, StructOpt)]
 struct MatchOpts {
     #[structopt(short, long)]
-    pattern: Regex,
+    default_pattern: Regex,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -41,14 +41,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     use Opts::*;
     match opts {
         Fetch(opts) => fetch(opts.image, opts.pattern, opts.amount),
-        Match(opts) => matching(opts.pattern),
+        Match(opts) => matching(opts.default_pattern),
     }
 }
 
 fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<dyn Error>> {
     let tags = DockerHubTagFetcher::fetch(
-        image,
-        Page {
+        &image,
+        &Page {
             size: amount,
             page: 1,
         },
@@ -74,7 +74,7 @@ fn fetch(image: ImageName, regex: Option<Regex>, amount: u32) -> Result<(), Box<
     Ok(())
 }
 
-fn matching(pattern: Regex) -> Result<(), Box<dyn Error>> {
+fn matching(default_pattern: Regex) -> Result<(), Box<dyn Error>> {
     let stdin = io::stdin();
     let info_result: Result<Vec<Vec<Info>>, Box<dyn Error>> = stdin
         .lock()
@@ -82,22 +82,52 @@ fn matching(pattern: Regex) -> Result<(), Box<dyn Error>> {
         .map(|line| Ok(Info::extract_from(line?)?))
         .collect();
 
-    let cli_extractor = VersionExtractor::from(pattern);
-    let result: Result<Vec<Option<String>>, Box<dyn Error>> = info_result?
+    let cli_extractor = VersionExtractor::from(default_pattern);
+    let amount = 25;
+    type ExtractionResult = Result<Vec<(Option<String>, Info)>, Box<dyn Error>>;
+    let result: ExtractionResult = info_result?
         .into_iter()
         .flatten()
         .map(|info| {
-            let tags = DockerHubTagFetcher::fetch(info.image, Page { size: 25, page: 1 })?;
+            let tags = DockerHubTagFetcher::fetch(
+                &info.image,
+                &Page {
+                    size: amount,
+                    page: 1,
+                },
+            )?;
 
-            let maybe_newest = match info.regex {
-                Some(regex) => VersionExtractor::from(regex).max(tags)?,
+            let maybe_newest = match &info.extractor {
+                Some(extractor) => extractor.max(tags)?,
                 None => cli_extractor.max(tags)?,
             };
-            Ok(maybe_newest)
+            Ok((maybe_newest, info))
         })
         .collect();
-    let matches: Vec<String> = result?.into_iter().filter_map(|tag| tag).collect();
-    println!("Newest tags: {:#?}", matches);
+    let output: Vec<String> = result?
+        .into_iter()
+        .map(|(maybe_tag, info)| match maybe_tag {
+            Some(tag) => format!(
+                "Current: `{}:{}`. Newest matching tag: `{}`.",
+                info.image, info.tag, tag
+            ),
+            None => {
+                let pattern = match info.extractor {
+                    Some(extractor) => extractor.to_string(),
+                    None => cli_extractor.to_string(),
+                };
+                format!(
+                    "Current: `{}:{}`. No tag matching `{}` found. (Searched latest {} tags.)",
+                    info.image, info.tag, pattern, amount
+                )
+            }
+        })
+        .collect();
+    println!(
+        "Found {} parent images:\n{}",
+        output.len(),
+        output.join("\n")
+    );
 
     Ok(())
 }

@@ -1,12 +1,13 @@
 use regex::Regex;
 
 use crate::image_name::ImageName;
+use crate::version_extractor::{Tagged, VersionExtractor};
 
 #[derive(Debug)]
 pub struct Info {
     pub image: ImageName,
     pub tag: String,
-    pub regex: Option<Regex>,
+    pub extractor: Option<VersionExtractor>,
 }
 
 impl Info {
@@ -25,18 +26,24 @@ impl Info {
                 let maybe_user = captures.name("user").map(|user| user.as_str().into());
                 let image = captures.name("image").unwrap().as_str().into();
                 let tag = captures.name("tag").unwrap().as_str().into();
-                let regex = captures
+                let extractor = captures
                     .name("regex")
-                    .map(|r| Regex::new(r.as_str()))
+                    .map(|r| VersionExtractor::parse(r.as_str()))
                     .transpose()?;
 
                 Ok(Info {
                     image: ImageName::from(maybe_user, image),
                     tag,
-                    regex,
+                    extractor,
                 })
             })
             .collect()
+    }
+}
+
+impl Tagged for Info {
+    fn tag(&self) -> &str {
+        &self.tag
     }
 }
 
@@ -48,8 +55,8 @@ mod test {
         fn eq(&self, other: &Self) -> bool {
             self.image == other.image
                 && self.tag == other.tag
-                && self.regex.as_ref().map(|r| r.as_str())
-                    == other.regex.as_ref().map(|r| r.as_str())
+                && self.extractor.as_ref().map(|e| e.as_str())
+                    == other.extractor.as_ref().map(|e| e.as_str())
         }
     }
 
@@ -67,7 +74,7 @@ mod test {
                     image: "dokuwiki".into()
                 },
                 tag: "2.3.12".into(),
-                regex: Some(Regex::new("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap())
+                extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap())
             }])
         )
     }
@@ -82,7 +89,7 @@ mod test {
                     image: "ubuntu".into()
                 },
                 tag: "14.04".into(),
-                regex: None
+                extractor: None
             }])
         )
     }
