@@ -6,16 +6,23 @@ use serde::{de, Deserialize, Deserializer};
 use crate::image_name::ImageName;
 
 pub trait TagFetcher {
-    type Error;
+    type Error: std::error::Error;
 
-    fn fetch(image: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error>;
+    fn fetch(&self, image: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error>;
 }
 
 pub struct Page {
-    pub size: u32,
-    pub page: u32,
+    size: usize,
+    page: usize,
 }
 
+impl Page {
+    pub fn first(size: usize) -> Page {
+        Page { size, page: 1 }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct DockerHubTagFetcher {}
 
 #[derive(Deserialize, Debug)]
@@ -40,10 +47,12 @@ where
     NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S.%fZ").map_err(de::Error::custom)
 }
 
+type Tag = String;
+
 impl TagFetcher for DockerHubTagFetcher {
     type Error = reqwest::Error;
 
-    fn fetch(name: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error> {
+    fn fetch(&self, name: &ImageName, page: &Page) -> Result<Vec<Tag>, Self::Error> {
         let name_path = Self::format_name_for_url(name);
         let url = format!(
             "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}",
@@ -62,6 +71,10 @@ impl TagFetcher for DockerHubTagFetcher {
 }
 
 impl DockerHubTagFetcher {
+    pub fn new() -> DockerHubTagFetcher {
+        DockerHubTagFetcher {}
+    }
+
     fn format_name_for_url(name: &ImageName) -> String {
         match name {
             ImageName::Official { image } => format!("library/{}", image),

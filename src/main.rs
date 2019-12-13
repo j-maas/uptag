@@ -25,7 +25,7 @@ struct FetchOpts {
     #[structopt(short, long)]
     pattern: Option<VersionExtractor>,
     #[structopt(short, long, default_value = "25")]
-    amount: u32,
+    amount: usize,
 }
 
 #[derive(Debug, StructOpt)]
@@ -55,14 +55,9 @@ fn main() -> Result<()> {
     }
 }
 
-fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: u32) -> Result<()> {
-    let tags = DockerHubTagFetcher::fetch(
-        &image,
-        &Page {
-            size: amount,
-            page: 1,
-        },
-    )?;
+fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) -> Result<()> {
+    let fetcher = DockerHubTagFetcher::new();
+    let tags = fetcher.fetch(&image, &Page::first(amount))?;
 
     let result = if let Some(extractor) = pattern {
         let result: Vec<String> = extractor.filter(tags).collect();
@@ -108,13 +103,8 @@ fn check_statement(
     default_extractor: &VersionExtractor,
 ) -> Result<String> {
     let amount = 25;
-    let tags = DockerHubTagFetcher::fetch(
-        &statement.image,
-        &Page {
-            size: amount,
-            page: 1,
-        },
-    )?;
+    let fetcher = DockerHubTagFetcher::new();
+    let tags = fetcher.fetch(&statement.image, &Page::first(25))?;
     let newest = match &statement.extractor {
         Some(extractor) => extractor.max(tags)?,
         None => default_extractor.max(tags)?,
@@ -168,13 +158,8 @@ fn process_statement(
     default_extractor: &VersionExtractor,
 ) -> Option<FromStatement> {
     let amount = 25;
-    let tags = DockerHubTagFetcher::fetch(
-        &statement.image,
-        &Page {
-            size: amount,
-            page: 1,
-        },
-    );
+    let fetcher = DockerHubTagFetcher::new();
+    let tags = fetcher.fetch(&statement.image, &Page::first(amount));
     let tags = match tags {
         Err(err) => {
             eprintln!("Error fetching tags for image {}: {}", statement.image, err);
