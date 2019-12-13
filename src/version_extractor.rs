@@ -50,6 +50,14 @@ pub struct VersionExtractor {
     regex: Regex,
 }
 
+impl PartialEq for VersionExtractor {
+    fn eq(&self, other: &Self) -> bool {
+        self.regex.as_str() == other.regex.as_str()
+    }
+}
+
+impl Eq for VersionExtractor {}
+
 impl fmt::Display for VersionExtractor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())

@@ -1,5 +1,6 @@
 use std::fmt;
 
+use lazy_static::lazy_static;
 use regex::Regex;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -8,11 +9,14 @@ pub enum ImageName {
     User { user: String, image: String },
 }
 
+lazy_static! {
+    static ref NAME: Regex =
+        Regex::new(r"^((?P<first>[[:word:]]+)/)?(?P<second>[[:word:]]+)$").unwrap();
+}
+
 impl ImageName {
     pub fn new(image: &str) -> Option<ImageName> {
-        let name_regex =
-            Regex::new(r"^((?P<first>[[:word:]]+)/)?(?P<second>[[:word:]]+)$").unwrap();
-        name_regex.captures(image).map(|captures| {
+        NAME.captures(image).map(|captures| {
             let first = captures.name("first").map(|s| s.as_str().into());
             let second = captures["second"].into(); // Second group is not optional, so access is safe.
             match first {
