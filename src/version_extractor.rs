@@ -45,7 +45,7 @@ use regex::Regex;
 /// [unnamed capture groups]: https://docs.rs/regex/1.3.1/regex/#grouping-and-flags
 /// [Regex]: https://docs.rs/regex/1.3.1/regex/index.html#syntax
 /// [`extract_from()`]: #method.extract_from
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VersionExtractor {
     regex: Regex,
 }
