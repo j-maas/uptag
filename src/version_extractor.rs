@@ -273,8 +273,9 @@ mod tests {
         };
     }
 
-    fn strict_semver_extractor() -> VersionExtractor {
-        VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap()
+    lazy_static! {
+        static ref STRICT_SEMVER: VersionExtractor =
+            VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
     }
 
     // Extraction
@@ -282,21 +283,21 @@ mod tests {
     proptest! {
         #[test]
         fn detects_simple_semver(valid in r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+") {
-            prop_assert_matches!(strict_semver_extractor(), &valid);
+            prop_assert_matches!(&*STRICT_SEMVER, &valid);
         }
 
         #[test]
         fn rejects_simple_semver_with_prefix(
             invalid in r"\PC*[^[:digit:]][[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\PC*"
         ) {
-            prop_assert_no_match!(strict_semver_extractor(), &invalid);
+            prop_assert_no_match!(&*STRICT_SEMVER, &invalid);
         }
 
         #[test]
         fn rejects_simple_semver_with_suffix(
             invalid in r"\PC*[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+[^[:digit:]]\PC*"
         ) {
-            prop_assert_no_match!(strict_semver_extractor(), &invalid);
+            prop_assert_no_match!(&*STRICT_SEMVER, &invalid);
         }
 
         #[test]
@@ -304,12 +305,12 @@ mod tests {
             let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
             let candidate = format!("{}{}", display_semver(version), suffix);
             let version = Version::from(version);
-            prop_assert_eq!(extractor.extract_from(&candidate), Ok(Some(version)));
+            prop_assert_eq!(extractor.extract_from(&candidate), Ok(version));
         }
 
         #[test]
         fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
-            let extractor = strict_semver_extractor();
+            let extractor = &STRICT_SEMVER;
             let filtered: Vec<String> = extractor.filter(tags.clone()).collect();
             prop_assert_eq!(filtered, tags);
         }
@@ -320,7 +321,7 @@ mod tests {
             invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian"))
         {
             let tags = valids.clone().into_iter().interleave(invalids.into_iter());
-            let extractor = strict_semver_extractor();
+            let extractor = &STRICT_SEMVER;
             let filtered: Vec<String> = extractor.filter(tags).collect();
             assert_eq!(filtered, valids);
         }
@@ -328,7 +329,7 @@ mod tests {
         #[test]
         fn extracts_all_matching_semver_tags(versions: Vec<SemVer>) {
             let tags: Vec<String> = versions.iter().map(display_semver).collect();
-            let extractor = strict_semver_extractor();
+            let extractor = &STRICT_SEMVER;
             let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
             let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
             prop_assert_eq!(filtered, Ok(expected));
@@ -340,7 +341,7 @@ mod tests {
             invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian")
         ) {
             let tags: Vec<String> = versions.iter().map(display_semver).interleave(invalids.into_iter()).collect();
-            let extractor = strict_semver_extractor();
+            let extractor = &STRICT_SEMVER;
             let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
             let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
             prop_assert_eq!(filtered, Ok(expected));
@@ -349,7 +350,7 @@ mod tests {
         #[test]
         fn returns_correct_maximum(versions: Vec<SemVer>) {
             let tags = versions.iter().map(display_semver);
-            let extractor = strict_semver_extractor();
+            let extractor = &STRICT_SEMVER;
             let expected_max = versions.iter().max().map(display_semver);
             prop_assert_eq!(extractor.max(tags), Ok(expected_max));
         }
