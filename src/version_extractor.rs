@@ -1,7 +1,6 @@
 use std::fmt;
 
 use regex::Regex;
-use thiserror::Error;
 
 /// A version format detecting and comparing versions.
 ///
@@ -110,28 +109,36 @@ impl VersionExtractor {
         self.regex.is_match(candidate.tag())
     }
 
-    pub fn extract_from<T>(&self, candidate: T) -> Result<Option<Version>, InvalidGroupError>
+    pub fn extract_from<T>(&self, candidate: T) -> Option<Version>
     where
         T: Tagged,
     {
-        self.regex
-            .captures_iter(candidate.tag())
-            .flat_map(|capture| {
-                capture
+        let parts = self
+            .regex
+            .captures(candidate.tag()) // Only look at the first match.
+            .into_iter()
+            .flat_map(|captures| {
+                captures
                     .iter()
-                    .skip(1) // The first group is the entire match.
+                    .skip(1) // We are only interested in the capture groups, so we skip the first submatch, since that contains the entire match.
                     .filter_map(|maybe_submatch| {
                         maybe_submatch.map(|submatch| {
-                            submatch.as_str().parse().map_err(|_| InvalidGroupError {
-                                tag: candidate.tag().to_string(),
-                                pattern: self.regex.to_string(),
-                            })
+                            dbg!(submatch)
+                                .as_str()
+                                .parse::<VersionPart>()
+                                .unwrap_or_else(|_| {
+                                    panic!(
+                                        "The pattern {} captured a non-numeric version part in tag `{}`.",
+                                        self.regex,
+                                        candidate.tag(),
+                                    )
+                                })
                         })
                     })
-                    .collect::<Vec<Result<VersionPart, InvalidGroupError>>>()
+                    .collect::<Vec<_>>()
             })
-            .collect::<Result<Vec<VersionPart>, InvalidGroupError>>()
-            .map(Version::new)
+            .collect();
+        Version::new(parts)
     }
 
     pub fn filter<'a, T>(
@@ -146,60 +153,25 @@ impl VersionExtractor {
             .filter(move |candidate| self.matches(candidate.tag()))
     }
 
-    pub fn extract<'a, T, U>(
+    pub fn extract<'a, T>(
         &'a self,
         candidates: impl IntoIterator<Item = T> + 'a,
-        mut mapping: impl FnMut(Version, T) -> U + 'a,
-    ) -> impl Iterator<Item = Result<U, ExtractionError>> + 'a
+    ) -> impl Iterator<Item = (Version, T)> + 'a
     where
         T: Tagged,
     {
-        candidates.into_iter().map(move |candidate| {
-            self.extract_from(dbg!(candidate.tag()))
-                .map_err(ExtractionError::InvalidGroup)
-                .and_then(|maybe_version| {
-                    maybe_version.ok_or_else(|| ExtractionError::EmptyVersion {
-                        tag: candidate.tag().to_string(),
-                        pattern: self.to_string(),
-                    })
-                })
-                .map(|version| mapping(version, candidate))
+        candidates.into_iter().filter_map(move |candidate| {
+            self.extract_from(candidate.tag())
+                .map(|version| (version, candidate))
         })
     }
 
-    pub fn max<T, U>(
-        &self,
-        candidates: impl IntoIterator<Item = T>,
-        mut mapping: impl FnMut(Version, T) -> U,
-    ) -> Result<Option<U>, ExtractionError>
+    pub fn max<T>(&self, candidates: impl IntoIterator<Item = T>) -> Option<(Version, T)>
     where
         T: Tagged,
     {
-        let result: Result<Vec<(Version, T)>, ExtractionError> = self
-            .extract(candidates, |version, tag| (version, tag))
-            .collect();
-        let max = result?
-            .into_iter()
-            .max_by(|a, b| a.0.cmp(&b.0))
-            .map(|(version, tag)| mapping(version, tag));
-        Ok(max)
+        self.extract(candidates).max_by(|a, b| a.0.cmp(&b.0))
     }
-}
-
-// TODO: Test these errors...
-#[derive(Error, Debug, PartialEq, Eq)]
-pub enum ExtractionError {
-    #[error(transparent)]
-    InvalidGroup(#[from] InvalidGroupError),
-    #[error("The pattern `{pattern}` did not extract any version parts from tag `{tag}`.")]
-    EmptyVersion { tag: String, pattern: String },
-}
-
-#[derive(Error, Debug, PartialEq, Eq)]
-#[error("The pattern `{pattern}` captures a non-numeric group in tag `{tag}`.")]
-pub struct InvalidGroupError {
-    tag: String,
-    pattern: String,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -317,7 +289,7 @@ mod tests {
             let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
             let candidate = format!("{}{}", display_semver(version), suffix);
             let version = Version::from(version);
-            prop_assert_eq!(extractor.extract_from(&candidate), Ok(Some(version)));
+            prop_assert_eq!(extractor.extract_from(&candidate), Some(version));
         }
 
         #[test]
@@ -347,7 +319,6 @@ mod tests {
                 .filter_map(|tag| {
                     extractor
                         .extract_from(&tag)
-                        .expect("Version extraction must not fail.")
                         .map(|version| (version, tag))
                 })
                 .collect();
@@ -375,7 +346,6 @@ mod tests {
                 .filter_map(|tag| {
                     extractor
                         .extract_from(&tag)
-                        .expect("Version extraction must not fail.")
                         .map(|version| (version, tag))
                 })
                 .collect();
@@ -391,16 +361,7 @@ mod tests {
         fn returns_correct_maximum(versions: Vec<SemVer>) {
             let tags = versions.iter().map(display_semver);
             let extractor = &STRICT_SEMVER;
-            let max = tags
-                .map(|tag| {
-                    let version = extractor
-                        .extract_from(&tag)
-                        .expect("Version extraction should not fail.")
-                        .expect("Version must not be empty.");
-                    (version, tag)
-                })
-                .max_by(|a, b| a.0.cmp(&b.0))
-                .map(|(_, tag)| tag);
+            let max = extractor.max(tags).map(|(_, tag)| tag);
             let expected_max = versions.into_iter().max().map(display_semver);
             prop_assert_eq!(max, expected_max);
         }

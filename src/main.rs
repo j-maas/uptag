@@ -114,9 +114,7 @@ fn check_statement(
         .fetch(&statement.image(), &Page::first(25))
         .with_context(|| format!("Failed to fetch tags for {}.", statement.image()))?;
     let extractor = statement.extractor().as_ref().unwrap_or(default_extractor);
-    let newest = extractor
-        .max(tags, |_, t| t)
-        .with_context(|| format!("Failed to parse tags for {}.", statement.image()))?;
+    let newest = extractor.max(tags).map(|(_, t)| t);
     let output = match newest {
         Some(tag) => format!(
             "Current: `{}:{}`. Newest matching tag: `{}`.",
