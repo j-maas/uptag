@@ -9,7 +9,6 @@ use crate::version_extractor::{Tagged, VersionExtractor};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FromStatement<'t> {
     matches: Matches<'t>,
-    image: ImageName,
     extractor: Option<VersionExtractor>,
     breaking_degree: usize,
 }
@@ -67,13 +66,16 @@ impl<'t> fmt::Display for FromStatement<'t> {
             ),
             None => "".to_string(),
         };
-        write!(f, "{}FROM {}:{}", pattern, self.image, self.tag())
+        write!(f, "{}FROM {}:{}", pattern, self.image(), self.tag())
     }
 }
 
 impl<'t> FromStatement<'t> {
-    pub fn image(&self) -> &ImageName {
-        &self.image
+    pub fn image(&self) -> ImageName {
+        ImageName::from(
+            self.matches.user.map(|m| m.as_str().to_string()),
+            self.matches.image.as_str().to_string(),
+        )
     }
 
     pub fn tag(&self) -> &str {
@@ -97,8 +99,6 @@ impl<'t> FromStatement<'t> {
     }
 
     fn from(matches: Matches<'t>) -> Result<FromStatement<'t>, regex::Error> {
-        let maybe_user = matches.user.map(|user| user.as_str().into());
-        let image = matches.image.as_str().into();
         let extractor = matches
             .pattern
             .map(|m| VersionExtractor::parse(m.as_str()))
@@ -110,7 +110,6 @@ impl<'t> FromStatement<'t> {
 
         Ok(FromStatement {
             matches,
-            image: ImageName::from(maybe_user, image),
             extractor,
             breaking_degree,
         })
@@ -137,7 +136,7 @@ mod test {
 
     impl<'t> PartialEq<FromStatement<'t>> for ExpectedFromStatment {
         fn eq(&self, other: &FromStatement) -> bool {
-            &self.image == other.image()
+            self.image == other.image()
                 && self.tag == other.tag()
                 && &self.extractor == other.extractor()
                 && self.breaking_degree == other.breaking_degree()
