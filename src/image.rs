@@ -3,6 +3,20 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct Image {
+    pub name: ImageName,
+    pub tag: Tag,
+}
+
+pub type Tag = String;
+
+impl fmt::Display for Image {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.name, self.tag)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum ImageName {
     Official { image: String },

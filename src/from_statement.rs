@@ -3,7 +3,7 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::image::ImageName;
+use crate::image::{Image, ImageName};
 use crate::version_extractor::{Tagged, VersionExtractor};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,20 +66,19 @@ impl<'t> fmt::Display for FromStatement<'t> {
             ),
             None => "".to_string(),
         };
-        write!(f, "{}FROM {}:{}", pattern, self.image(), self.tag())
+        write!(f, "{}FROM {}", pattern, self.image())
     }
 }
 
 impl<'t> FromStatement<'t> {
-    pub fn image(&self) -> ImageName {
-        ImageName::from(
-            self.matches.user.map(|m| m.as_str().to_string()),
-            self.matches.image.as_str().to_string(),
-        )
-    }
-
-    pub fn tag(&self) -> &str {
-        self.matches.tag.as_str()
+    pub fn image(&self) -> Image {
+        Image {
+            name: ImageName::from(
+                self.matches.user.map(|m| m.as_str().to_string()),
+                self.matches.image.as_str().to_string(),
+            ),
+            tag: self.matches.tag.as_str().to_string(),
+        }
     }
 
     pub fn extractor(&self) -> &Option<VersionExtractor> {
@@ -118,7 +117,7 @@ impl<'t> FromStatement<'t> {
 
 impl<'t> Tagged for FromStatement<'t> {
     fn tag(&self) -> &str {
-        &self.tag()
+        self.matches.tag.as_str()
     }
 }
 
@@ -128,16 +127,17 @@ mod test {
 
     #[derive(Debug)]
     struct ExpectedFromStatment {
-        image: ImageName,
-        tag: &'static str,
+        image_name: ImageName,
+        image_tag: &'static str,
         extractor: Option<VersionExtractor>,
         breaking_degree: usize,
     }
 
     impl<'t> PartialEq<FromStatement<'t>> for ExpectedFromStatment {
         fn eq(&self, other: &FromStatement) -> bool {
-            self.image == other.image()
-                && self.tag == other.tag()
+            let other_image = other.image();
+            self.image_name == other_image.name
+                && self.image_tag == other_image.tag
                 && &self.extractor == other.extractor()
                 && self.breaking_degree == other.breaking_degree()
         }
@@ -174,11 +174,11 @@ mod test {
         assert_eq_result_option!(
             FromStatement::first(dockerfile),
             Ok(Some(ExpectedFromStatment {
-                image: ImageName::User {
+                image_name: ImageName::User {
                     user: "bitnami".into(),
                     image: "dokuwiki".into()
                 },
-                tag: "2.3.12",
+                image_tag: "2.3.12",
                 extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap()),
                 breaking_degree: 1,
             }))
@@ -191,10 +191,10 @@ mod test {
         assert_eq_result_option!(
             FromStatement::first(dockerfile),
             Ok(Some(ExpectedFromStatment {
-                image: ImageName::Official {
+                image_name: ImageName::Official {
                     image: "ubuntu".into()
                 },
-                tag: "14.04",
+                image_tag: "14.04",
                 extractor: None,
                 breaking_degree: 0,
             }))

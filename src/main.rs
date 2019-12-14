@@ -110,17 +110,16 @@ fn check_statement(
 ) -> Result<String> {
     let amount = 25;
     let fetcher = DockerHubTagFetcher::new();
+    let image = statement.image();
     let tags = fetcher
-        .fetch(&statement.image(), &Page::first(25))
+        .fetch(&image.name, &Page::first(25))
         .with_context(|| format!("Failed to fetch tags for {}.", statement.image()))?;
     let extractor = statement.extractor().as_ref().unwrap_or(default_extractor);
     let newest = extractor.max(tags).map(|(_, t)| t);
     let output = match newest {
         Some(tag) => format!(
             "Current: `{}:{}`. Newest matching tag: `{}`.",
-            statement.image(),
-            statement.tag(),
-            tag
+            image.name, image.tag, tag
         ),
         None => {
             let pattern = match &statement.extractor() {
@@ -129,10 +128,7 @@ fn check_statement(
             };
             format!(
                 "Current: `{}:{}`. No tag matching `{}` found. (Searched latest {} tags.)",
-                statement.image(),
-                statement.tag(),
-                pattern,
-                amount
+                image.name, image.tag, pattern, amount
             )
         }
     };

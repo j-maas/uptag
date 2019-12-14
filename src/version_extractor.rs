@@ -106,16 +106,17 @@ impl VersionExtractor {
     where
         T: Tagged,
     {
-        self.regex.is_match(candidate.tag())
+        self.regex.is_match(candidate.tag().as_ref())
     }
 
     pub fn extract_from<T>(&self, candidate: T) -> Option<Version>
     where
         T: Tagged,
     {
+        let tag = candidate.tag().as_ref();
         let parts = self
             .regex
-            .captures(candidate.tag()) // Only look at the first match.
+            .captures(tag) // Only look at the first match.
             .into_iter()
             .flat_map(|captures| {
                 captures
@@ -130,7 +131,7 @@ impl VersionExtractor {
                                     panic!(
                                         "The pattern {} captured a non-numeric version part in tag `{}`.",
                                         self.regex,
-                                        candidate.tag(),
+                                        tag
                                     )
                                 })
                         })
