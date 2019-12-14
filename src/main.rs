@@ -1,8 +1,8 @@
-use std::error::Error;
 use std::io;
 use std::io::prelude::*;
 use std::path::PathBuf;
 
+use anyhow::{Context, Result};
 use env_logger;
 use structopt::StructOpt;
 
@@ -57,7 +57,9 @@ fn main() -> Result<()> {
 
 fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) -> Result<()> {
     let fetcher = DockerHubTagFetcher::new();
-    let tags = fetcher.fetch(&image, &Page::first(amount))?;
+    let tags = fetcher
+        .fetch(&image, &Page::first(amount))
+        .context("Failed to fetch tags.")?;
 
     let result = if let Some(extractor) = pattern {
         let result: Vec<String> = extractor.filter(tags).collect();
@@ -81,9 +83,13 @@ fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) ->
 fn check(default_extractor: &VersionExtractor) -> Result<()> {
     let stdin = io::stdin();
     let mut input = String::new();
-    stdin.lock().read_to_string(&mut input)?;
+    stdin
+        .lock()
+        .read_to_string(&mut input)
+        .context("Failed to read from stdin.")?;
 
-    let result: Result<Vec<String>> = FromStatement::iter(&input)?
+    let result: Result<Vec<String>> = FromStatement::iter(&input)
+        .context("Failed to parse a statement.")?
         .into_iter()
         .map(|statement| check_statement(&statement, default_extractor))
         .collect();
@@ -104,11 +110,13 @@ fn check_statement(
 ) -> Result<String> {
     let amount = 25;
     let fetcher = DockerHubTagFetcher::new();
-    let tags = fetcher.fetch(&statement.image(), &Page::first(25))?;
-    let newest = match &statement.extractor() {
-        Some(extractor) => extractor.max(tags)?,
-        None => default_extractor.max(tags)?,
-    };
+    let tags = fetcher
+        .fetch(&statement.image(), &Page::first(25))
+        .with_context(|| format!("Failed to fetch tags for {}.", statement.image()))?;
+    let extractor = statement.extractor().as_ref().unwrap_or(default_extractor);
+    let newest = extractor
+        .max(tags, |_, t| t)
+        .with_context(|| format!("Failed to parse tags for {}.", statement.image()))?;
     let output = match newest {
         Some(tag) => format!(
             "Current: `{}:{}`. Newest matching tag: `{}`.",
@@ -132,5 +140,3 @@ fn check_statement(
     };
     Ok(output)
 }
-
-type Result<T> = std::result::Result<T, Box<dyn Error>>;

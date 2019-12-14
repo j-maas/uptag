@@ -1,6 +1,7 @@
 use std::fmt;
 
 use regex::Regex;
+use thiserror::Error;
 
 /// A version format detecting and comparing versions.
 ///
@@ -109,7 +110,7 @@ impl VersionExtractor {
         self.regex.is_match(candidate.tag())
     }
 
-    pub fn extract_from<T>(&self, candidate: T) -> Result<Option<Version>, ExtractionError>
+    pub fn extract_from<T>(&self, candidate: T) -> Result<Option<Version>, InvalidGroupError>
     where
         T: Tagged,
     {
@@ -121,15 +122,15 @@ impl VersionExtractor {
                     .skip(1) // The first group is the entire match.
                     .filter_map(|maybe_submatch| {
                         maybe_submatch.map(|submatch| {
-                            submatch
-                                .as_str()
-                                .parse()
-                                .map_err(|_| ExtractionError::InvalidGroup)
+                            submatch.as_str().parse().map_err(|_| InvalidGroupError {
+                                tag: candidate.tag().to_string(),
+                                pattern: self.regex.to_string(),
+                            })
                         })
                     })
-                    .collect::<Vec<Result<VersionPart, ExtractionError>>>()
+                    .collect::<Vec<Result<VersionPart, InvalidGroupError>>>()
             })
-            .collect::<Result<Vec<VersionPart>, ExtractionError>>()
+            .collect::<Result<Vec<VersionPart>, InvalidGroupError>>()
             .map(Version::new)
     }
 
@@ -145,58 +146,68 @@ impl VersionExtractor {
             .filter(move |candidate| self.matches(candidate.tag()))
     }
 
-    pub fn extract<'a, T>(
+    pub fn extract<'a, T, U>(
         &'a self,
         candidates: impl IntoIterator<Item = T> + 'a,
-    ) -> impl Iterator<Item = Result<(Version, T), ExtractionError>> + 'a
+        mut mapping: impl FnMut(Version, T) -> U + 'a,
+    ) -> impl Iterator<Item = Result<U, ExtractionError>> + 'a
     where
         T: Tagged,
     {
-        candidates.into_iter().filter_map(move |candidate| {
-            self.extract_from(candidate.tag())
-                .transpose()
-                .map(|result| result.map(|version| (version, candidate)))
+        candidates.into_iter().map(move |candidate| {
+            self.extract_from(dbg!(candidate.tag()))
+                .map_err(ExtractionError::InvalidGroup)
+                .and_then(|maybe_version| {
+                    maybe_version.ok_or_else(|| ExtractionError::EmptyVersion {
+                        tag: candidate.tag().to_string(),
+                        pattern: self.to_string(),
+                    })
+                })
+                .map(|version| mapping(version, candidate))
         })
     }
 
-    pub fn max<T>(
+    pub fn max<T, U>(
         &self,
         candidates: impl IntoIterator<Item = T>,
-    ) -> Result<Option<T>, ExtractionError>
+        mut mapping: impl FnMut(Version, T) -> U,
+    ) -> Result<Option<U>, ExtractionError>
     where
         T: Tagged,
     {
-        let result: Result<Vec<(Version, T)>, ExtractionError> = self.extract(candidates).collect();
-        result.map(|versions| {
-            versions
-                .into_iter()
-                .max_by(|a, b| a.0.cmp(&b.0))
-                .map(|(_, tag)| tag)
-        })
+        let result: Result<Vec<(Version, T)>, ExtractionError> = self
+            .extract(candidates, |version, tag| (version, tag))
+            .collect();
+        let max = result?
+            .into_iter()
+            .max_by(|a, b| a.0.cmp(&b.0))
+            .map(|(version, tag)| mapping(version, tag));
+        Ok(max)
     }
 }
 
 // TODO: Test these errors...
-#[derive(Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum ExtractionError {
-    InvalidGroup,
-    EmptyVersion,
+    #[error(transparent)]
+    InvalidGroup(#[from] InvalidGroupError),
+    #[error("The pattern `{pattern}` did not extract any version parts from tag `{tag}`.")]
+    EmptyVersion { tag: String, pattern: String },
 }
 
-impl fmt::Display for ExtractionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "An error occurred while extracting a version.")
-    }
+#[derive(Error, Debug, PartialEq, Eq)]
+#[error("The pattern `{pattern}` captures a non-numeric group in tag `{tag}`.")]
+pub struct InvalidGroupError {
+    tag: String,
+    pattern: String,
 }
-
-impl std::error::Error for ExtractionError {}
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Version {
     parts: Vec<VersionPart>,
 }
 
-type VersionPart = u64;
+type VersionPart = usize;
 
 impl Version {
     pub fn new(parts: Vec<VersionPart>) -> Option<Version> {
@@ -227,6 +238,7 @@ mod tests {
     use std::borrow::Borrow;
 
     use itertools::Itertools;
+    use lazy_static::lazy_static;
     use proptest::prelude::*;
 
     type SemVer = (VersionPart, VersionPart, VersionPart);
@@ -305,7 +317,7 @@ mod tests {
             let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
             let candidate = format!("{}{}", display_semver(version), suffix);
             let version = Version::from(version);
-            prop_assert_eq!(extractor.extract_from(&candidate), Ok(version));
+            prop_assert_eq!(extractor.extract_from(&candidate), Ok(Some(version)));
         }
 
         #[test]
@@ -330,9 +342,21 @@ mod tests {
         fn extracts_all_matching_semver_tags(versions: Vec<SemVer>) {
             let tags: Vec<String> = versions.iter().map(display_semver).collect();
             let extractor = &STRICT_SEMVER;
-            let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
-            let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
-            prop_assert_eq!(filtered, Ok(expected));
+            let filtered: Vec<(Version, String)> = tags
+                .into_iter()
+                .filter_map(|tag| {
+                    extractor
+                        .extract_from(&tag)
+                        .expect("Version extraction must not fail.")
+                        .map(|version| (version, tag))
+                })
+                .collect();
+            let expected: Vec<(Version, String)> = versions
+                .into_iter()
+                .map(
+                    |v| (Version::from(v), display_semver(v))
+                ).collect();
+            prop_assert_eq!(filtered, expected);
         }
 
         #[test]
@@ -340,19 +364,45 @@ mod tests {
             versions: Vec<SemVer>,
             invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian")
         ) {
-            let tags: Vec<String> = versions.iter().map(display_semver).interleave(invalids.into_iter()).collect();
+            let tags: Vec<String> = versions
+                .iter()
+                .map(display_semver)
+                .interleave(invalids.into_iter())
+                .collect();
             let extractor = &STRICT_SEMVER;
-            let filtered: Result<Vec<(Version, String)>, _> = extractor.extract(tags).collect();
-            let expected = versions.into_iter().map(|v| (Version::from(v), display_semver(v))).collect();
-            prop_assert_eq!(filtered, Ok(expected));
+            let filtered: Vec<(Version, String)> = tags
+                .into_iter()
+                .filter_map(|tag| {
+                    extractor
+                        .extract_from(&tag)
+                        .expect("Version extraction must not fail.")
+                        .map(|version| (version, tag))
+                })
+                .collect();
+            let expected: Vec<(Version, String)> = versions
+                .into_iter()
+                .map(
+                    |v| (Version::from(v), display_semver(v))
+                ).collect();
+            prop_assert_eq!(filtered, expected);
         }
 
         #[test]
         fn returns_correct_maximum(versions: Vec<SemVer>) {
             let tags = versions.iter().map(display_semver);
             let extractor = &STRICT_SEMVER;
-            let expected_max = versions.iter().max().map(display_semver);
-            prop_assert_eq!(extractor.max(tags), Ok(expected_max));
+            let max = tags
+                .map(|tag| {
+                    let version = extractor
+                        .extract_from(&tag)
+                        .expect("Version extraction should not fail.")
+                        .expect("Version must not be empty.");
+                    (version, tag)
+                })
+                .max_by(|a, b| a.0.cmp(&b.0))
+                .map(|(_, tag)| tag);
+            let expected_max = versions.into_iter().max().map(display_semver);
+            prop_assert_eq!(max, expected_max);
         }
     }
 
@@ -361,8 +411,8 @@ mod tests {
     prop_compose! {
         fn version_seq
             ()
-            (version in prop::collection::vec(0u64..100, 1..10))
-            (index in 0..version.len(), upgrade in 1u64..100, mut version in Just(version))
+            (version in prop::collection::vec(0usize..100, 1..10))
+            (index in 0..version.len(), upgrade in 1usize..100, mut version in Just(version))
             -> (Version, Version)
         {
             let smaller = Version::new(version.clone()).unwrap();
@@ -375,8 +425,8 @@ mod tests {
     prop_compose! {
         fn version_seq_no_break
             (size: usize, break_degree: usize)
-            (version in prop::collection::vec(0u64..100, size))
-            (index in break_degree..version.len(), upgrade in 1u64..100, mut version in Just(version))
+            (version in prop::collection::vec(0usize..100, size))
+            (index in break_degree..version.len(), upgrade in 1usize..100, mut version in Just(version))
             -> (Version, Version)
         {
             let smaller = Version::new(version.clone()).unwrap();
@@ -389,8 +439,8 @@ mod tests {
     prop_compose! {
         fn version_seq_with_break
             (size: usize, break_degree: usize)
-            (version in prop::collection::vec(0u64..100, size))
-            (index in 0..break_degree, upgrade in 1u64..100, mut version in Just(version))
+            (version in prop::collection::vec(0usize..100, size))
+            (index in 0..break_degree, upgrade in 1usize..100, mut version in Just(version))
             -> (Version, Version)
         {
             let smaller = Version::new(version.clone()).unwrap();
