@@ -3,7 +3,7 @@ use log;
 use reqwest;
 use serde::{de, Deserialize, Deserializer};
 
-use crate::image_name::ImageName;
+use crate::image::ImageName;
 
 pub trait TagFetcher {
     type Error: std::error::Error;

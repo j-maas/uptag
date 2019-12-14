@@ -3,7 +3,7 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::image_name::ImageName;
+use crate::image::ImageName;
 use crate::version_extractor::{Tagged, VersionExtractor};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
