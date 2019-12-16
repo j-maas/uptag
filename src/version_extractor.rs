@@ -124,7 +124,7 @@ impl VersionExtractor {
                     .skip(1) // We are only interested in the capture groups, so we skip the first submatch, since that contains the entire match.
                     .filter_map(|maybe_submatch| {
                         maybe_submatch.map(|submatch| {
-                            dbg!(submatch)
+                            submatch
                                 .as_str()
                                 .parse::<VersionPart>()
                                 .unwrap_or_else(|_| {
