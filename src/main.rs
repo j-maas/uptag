@@ -1,9 +1,13 @@
+use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use env_logger;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use serde_json;
 use structopt::StructOpt;
 
 use updock::FromStatement;
@@ -32,6 +36,8 @@ struct FetchOpts {
 struct CheckOpts {
     #[structopt(short, long)]
     default_pattern: Option<VersionExtractor>,
+    #[structopt(short, long)]
+    json: bool,
 }
 
 #[derive(Debug, StructOpt)]
@@ -49,23 +55,23 @@ fn main() -> Result<()> {
 
     use Opts::*;
     match opts {
-        Fetch(opts) => fetch(&opts.image, opts.pattern, opts.amount),
-        Check(opts) => check(&opts.default_pattern),
+        Fetch(opts) => fetch(opts),
+        Check(opts) => check(opts),
         Upgrade(opts) => Ok(()),
     }
 }
 
-fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) -> Result<()> {
+fn fetch(opts: FetchOpts) -> Result<()> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
-        .fetch(&image, &Page::first(amount))
+        .fetch(&opts.image, &Page::first(opts.amount))
         .context("Failed to fetch tags.")?;
 
-    let result = if let Some(extractor) = pattern {
+    let result = if let Some(extractor) = opts.pattern {
         let result: Vec<String> = extractor.filter(tags).collect();
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
-            amount,
+            opts.amount,
             result.len(),
             extractor
         );
@@ -80,7 +86,7 @@ fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) ->
     Ok(())
 }
 
-fn check(default_extractor: &Option<VersionExtractor>) -> Result<()> {
+fn check(opts: CheckOpts) -> Result<()> {
     let stdin = io::stdin();
     let mut input = String::new();
     stdin
@@ -88,7 +94,8 @@ fn check(default_extractor: &Option<VersionExtractor>) -> Result<()> {
         .read_to_string(&mut input)
         .context("Failed to read from stdin.")?;
 
-    let result: Result<Vec<String>> = FromStatement::iter(&input)
+    let amount = 25;
+    let result = FromStatement::iter(&input)
         .context("Failed to parse a statement.")?
         .into_iter()
         .map(|statement| {
@@ -96,48 +103,52 @@ fn check(default_extractor: &Option<VersionExtractor>) -> Result<()> {
             let extractor = statement
                 .extractor()
                 .as_ref()
-                .or_else(|| default_extractor.as_ref())
+                .or_else(|| opts.default_pattern.as_ref())
                 .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
-            let amount = 25;
             let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
                 .with_context(|| format!("Failed to check {}.", statement.image()))?;
-            Ok(match upgrade {
+            Ok((upgrade, image, extractor.to_string()))
+        })
+        .collect::<Result<Vec<_>>>();
+    let upgrades = result?;
+
+    let output = if opts.json {
+        let map = upgrades
+            .into_iter()
+            .map(|(upgrade, image, _)| (image.to_string(), upgrade))
+            .collect::<HashMap<_, _>>();
+        serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+    } else {
+        upgrades
+            .into_iter()
+            .map(|(upgrade, image, pattern)| match upgrade {
                 Upgrade {
                     compatible: Some(compatible),
                     breaking: Some(breaking),
                 } => format!(
                     "{} can upgrade to `{}`, and has breaking upgrade to `{}`.",
-                    statement.image(),
-                    compatible,
-                    breaking
+                    image, compatible, breaking
                 ),
                 Upgrade {
                     compatible: Some(compatible),
                     breaking: None,
-                } => format!("{} can upgrade to `{}`.", statement.image(), compatible),
+                } => format!("{} can upgrade to `{}`.", image, compatible),
                 Upgrade {
                     compatible: None,
                     breaking: Some(breaking),
-                } => format!(
-                    "{} has breaking upgrade to `{}`.",
-                    statement.image(),
-                    breaking
-                ),
+                } => format!("{} has breaking upgrade to `{}`.", image, breaking),
                 Upgrade {
                     compatible: None,
                     breaking: None,
                 } => format!(
                     "{} has no upgrade matching `{}` in the latest {} tags.",
-                    statement.image(),
-                    extractor,
-                    amount
+                    image, pattern, amount
                 ),
             })
-        })
-        .collect();
-    let output = result?;
+            .join("\n")
+    };
 
-    println!("{}", output.join("\n"));
+    println!("{}", output);
 
     Ok(())
 }
@@ -175,6 +186,7 @@ fn check_statement(
 
 type Tag = String;
 
+#[derive(Debug, Serialize, Deserialize)]
 struct Upgrade {
     compatible: Option<Tag>,
     breaking: Option<Tag>,
