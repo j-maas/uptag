@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use env_logger;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -19,7 +21,7 @@ use updock::{Version, VersionExtractor};
 enum Opts {
     Fetch(FetchOpts),
     Check(CheckOpts),
-    Upgrade(UpgradeOpts),
+    CheckCompose(CheckComposeOpts),
 }
 
 #[derive(Debug, StructOpt)]
@@ -41,11 +43,11 @@ struct CheckOpts {
 }
 
 #[derive(Debug, StructOpt)]
-struct UpgradeOpts {
+struct CheckComposeOpts {
     #[structopt(short, long, parse(from_os_str))]
     input: PathBuf,
-    #[structopt(short, long)]
-    default_pattern: VersionExtractor,
+    #[structopt(flatten)]
+    check_opts: CheckOpts,
 }
 
 fn main() -> Result<()> {
@@ -57,7 +59,7 @@ fn main() -> Result<()> {
     match opts {
         Fetch(opts) => fetch(opts),
         Check(opts) => check(opts),
-        Upgrade(opts) => Ok(()),
+        CheckCompose(opts) => check_compose(opts),
     }
 }
 
@@ -95,33 +97,18 @@ fn check(opts: CheckOpts) -> Result<()> {
         .context("Failed to read from stdin.")?;
 
     let amount = 25;
-    let result = FromStatement::iter(&input)
-        .context("Failed to parse a statement.")?
-        .into_iter()
-        .map(|statement| {
-            let image = statement.image();
-            let extractor = statement
-                .extractor()
-                .as_ref()
-                .or_else(|| opts.default_pattern.as_ref())
-                .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
-            let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
-                .with_context(|| format!("Failed to check {}.", statement.image()))?;
-            Ok((upgrade, image, extractor.to_string()))
-        })
-        .collect::<Result<Vec<_>>>();
-    let upgrades = result?;
+    let upgrades = check_input(input, &opts.default_pattern, amount)?;
 
     let output = if opts.json {
         let map = upgrades
             .into_iter()
-            .map(|(upgrade, image, _)| (image.to_string(), upgrade))
-            .collect::<HashMap<_, _>>();
+            .map(|(image, upgrade, _)| (image.to_string(), upgrade))
+            .collect::<IndexMap<_, _>>(); // IndexMap preserves order.
         serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
     } else {
         upgrades
             .into_iter()
-            .map(|(upgrade, image, pattern)| match upgrade {
+            .map(|(image, upgrade, pattern)| match upgrade {
                 Upgrade {
                     compatible: Some(compatible),
                     breaking: Some(breaking),
@@ -153,6 +140,28 @@ fn check(opts: CheckOpts) -> Result<()> {
     Ok(())
 }
 
+fn check_input(
+    input: String,
+    default_extractor: &Option<VersionExtractor>,
+    amount: usize,
+) -> Result<Vec<(Image, Upgrade, String)>> {
+    FromStatement::iter(&input)
+        .context("Failed to parse a statement.")?
+        .into_iter()
+        .map(|statement| {
+            let image = statement.image();
+            let extractor = statement
+                .extractor()
+                .as_ref()
+                .or_else(|| default_extractor.as_ref())
+                .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
+            let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
+                .with_context(|| format!("Failed to check {}.", statement.image()))?;
+            Ok((image, upgrade, extractor.to_string()))
+        })
+        .collect()
+}
+
 fn check_statement(
     image: &Image,
     extractor: &VersionExtractor,
@@ -163,7 +172,9 @@ fn check_statement(
     let tags = fetcher
         .fetch(&image.name, &Page::first(amount))
         .context("Failed to fetch tags.")?;
-    let current_version = extractor.extract_from(&image.tag).unwrap();
+
+
+    let current_version = extractor.extract_from(&image.tag).unwrap(); // TODO: This can fail if the image tag does not match the pattern. It thus needs a graceful error.
     let (compatible, breaking): (Vec<(Version, String)>, Vec<(Version, String)>) = extractor
         .extract(tags)
         .partition(|(candidate, _)| current_version.upgrades_to(candidate, breaking_degree));
@@ -190,4 +201,91 @@ type Tag = String;
 struct Upgrade {
     compatible: Option<Tag>,
     breaking: Option<Tag>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DockerCompose {
+    services: IndexMap<String, Service>, // IndeMap preserves order.
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Service {
+    build: PathBuf,
+}
+
+fn check_compose(opts: CheckComposeOpts) -> Result<()> {
+    let compose_file = fs::File::open(&opts.input)
+        .with_context(|| format!("Failed to read file `{}`.", opts.input.display()))?;
+    let compose: DockerCompose =
+        serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file.")?;
+
+    let compose_dir = opts.input.parent().unwrap();
+    let amount = 25;
+    let result = compose
+        .services
+        .into_iter()
+        .map(|(service_name, service)| {
+            let path = compose_dir.join(service.build).join("Dockerfile");
+            let input = fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read file `{}`.", path.display()))?;
+            let upgrades = check_input(input, &opts.check_opts.default_pattern, amount)?;
+
+            Ok((service_name, upgrades))
+        })
+        .collect::<Result<Vec<_>>>();
+    let services = result?;
+
+    let output = if opts.check_opts.json {
+        let map = services
+            .into_iter()
+            .map(|(service, upgrades)| {
+                (
+                    service,
+                    upgrades
+                        .into_iter()
+                        .map(|(image, upgrade, _)| (image.to_string(), upgrade))
+                        .collect(),
+                )
+            })
+            .collect::<HashMap<_, HashMap<_, _>>>();
+        serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+    } else {
+        services
+            .into_iter()
+            .map(|(service, upgrades)| {
+                let upgrades_output = upgrades
+                    .into_iter()
+                    .map(|(image, upgrade, pattern)| match upgrade {
+                        Upgrade {
+                            compatible: Some(compatible),
+                            breaking: Some(breaking),
+                        } => format!(
+                            "{} can upgrade to `{}`, and has breaking upgrade to `{}`.",
+                            image, compatible, breaking
+                        ),
+                        Upgrade {
+                            compatible: Some(compatible),
+                            breaking: None,
+                        } => format!("{} can upgrade to `{}`.", image, compatible),
+                        Upgrade {
+                            compatible: None,
+                            breaking: Some(breaking),
+                        } => format!("{} has breaking upgrade to `{}`.", image, breaking),
+                        Upgrade {
+                            compatible: None,
+                            breaking: None,
+                        } => format!(
+                            "{} has no upgrade matching `{}` in the latest {} tags.",
+                            image, pattern, amount
+                        ),
+                    })
+                    .join("\n");
+                format!("Service {}:\n{}", service, upgrades_output)
+            })
+            .join("\n\n")
+    };
+
+    println!("{}", output);
+
+    Ok(())
 }

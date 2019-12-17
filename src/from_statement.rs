@@ -26,7 +26,7 @@ pub struct Matches<'t> {
 // TODO: Document that regexs can't contain `"`, not even escaped.
 lazy_static! {
     static ref STATEMENT: Regex = Regex::new(
-        r#"(#\s*updock\s+pattern\s*:\s*"(?P<pattern>[^"]*)"(\s*,\s*breaking\s+degree\s*:\s*(?P<breaking_degree>\d+))?\s*\n+)?\s*FROM\s*((?P<user>[[:word:]]+)/)?(?P<image>[[:word:]]+):(?P<tag>[[:word:][:punct:]]+)"#
+        r#"(#\s*updock\s+pattern\s*:\s*"(?P<pattern>[^"]*)"(\s*,\s*breaking\s+degree\s*:\s*(?P<breaking_degree>\d+))?\s*\n+)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
     ).unwrap();
 }
 
@@ -170,16 +170,18 @@ mod test {
     #[test]
     fn extracts_full_statement() {
         let dockerfile =
-            "# updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)$\", breaking degree: 1\nFROM bitnami/dokuwiki:2.3.12";
+            "# updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$\", breaking degree: 1\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
         assert_eq_result_option!(
             FromStatement::first(dockerfile),
             Ok(Some(ExpectedFromStatment {
                 image_name: ImageName::User {
-                    user: "bitnami".into(),
-                    image: "dokuwiki".into()
+                    user: "gitlab".into(),
+                    image: "gitlab-ce".into()
                 },
-                image_tag: "2.3.12",
-                extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)$").unwrap()),
+                image_tag: "12.3.2-ce.0",
+                extractor: Some(
+                    VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$").unwrap()
+                ),
                 breaking_degree: 1,
             }))
         );
