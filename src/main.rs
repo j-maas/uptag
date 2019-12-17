@@ -2,14 +2,14 @@ use std::io;
 use std::io::prelude::*;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use env_logger;
 use structopt::StructOpt;
 
 use updock::FromStatement;
-use updock::ImageName;
-use updock::VersionExtractor;
 use updock::{DockerHubTagFetcher, Page, TagFetcher};
+use updock::{Image, ImageName};
+use updock::{Version, VersionExtractor};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -31,7 +31,7 @@ struct FetchOpts {
 #[derive(Debug, StructOpt)]
 struct CheckOpts {
     #[structopt(short, long)]
-    default_pattern: VersionExtractor,
+    default_pattern: Option<VersionExtractor>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -80,7 +80,7 @@ fn fetch(image: &ImageName, pattern: Option<VersionExtractor>, amount: usize) ->
     Ok(())
 }
 
-fn check(default_extractor: &VersionExtractor) -> Result<()> {
+fn check(default_extractor: &Option<VersionExtractor>) -> Result<()> {
     let stdin = io::stdin();
     let mut input = String::new();
     stdin
@@ -91,46 +91,91 @@ fn check(default_extractor: &VersionExtractor) -> Result<()> {
     let result: Result<Vec<String>> = FromStatement::iter(&input)
         .context("Failed to parse a statement.")?
         .into_iter()
-        .map(|statement| check_statement(&statement, default_extractor))
+        .map(|statement| {
+            let image = statement.image();
+            let extractor = statement
+                .extractor()
+                .as_ref()
+                .or_else(|| default_extractor.as_ref())
+                .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
+            let amount = 25;
+            let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
+                .with_context(|| format!("Failed to check {}.", statement.image()))?;
+            Ok(match upgrade {
+                Upgrade {
+                    compatible: Some(compatible),
+                    breaking: Some(breaking),
+                } => format!(
+                    "{} can upgrade to `{}`, and has breaking upgrade to `{}`.",
+                    statement.image(),
+                    compatible,
+                    breaking
+                ),
+                Upgrade {
+                    compatible: Some(compatible),
+                    breaking: None,
+                } => format!("{} can upgrade to `{}`.", statement.image(), compatible),
+                Upgrade {
+                    compatible: None,
+                    breaking: Some(breaking),
+                } => format!(
+                    "{} has breaking upgrade to `{}`.",
+                    statement.image(),
+                    breaking
+                ),
+                Upgrade {
+                    compatible: None,
+                    breaking: None,
+                } => format!(
+                    "{} has no upgrade matching `{}` in the latest {} tags.",
+                    statement.image(),
+                    extractor,
+                    amount
+                ),
+            })
+        })
         .collect();
     let output = result?;
 
-    println!(
-        "Found {} parent images:\n{}",
-        output.len(),
-        output.join("\n")
-    );
+    println!("{}", output.join("\n"));
 
     Ok(())
 }
 
 fn check_statement(
-    statement: &FromStatement,
-    default_extractor: &VersionExtractor,
-) -> Result<String> {
-    let amount = 25;
+    image: &Image,
+    extractor: &VersionExtractor,
+    breaking_degree: usize,
+    amount: usize,
+) -> Result<Upgrade> {
     let fetcher = DockerHubTagFetcher::new();
-    let image = statement.image();
     let tags = fetcher
-        .fetch(&image.name, &Page::first(25))
-        .with_context(|| format!("Failed to fetch tags for {}.", statement.image()))?;
-    let extractor = statement.extractor().as_ref().unwrap_or(default_extractor);
-    let newest = extractor.max(tags).map(|(_, t)| t);
-    let output = match newest {
-        Some(tag) => format!(
-            "Current: `{}:{}`. Newest matching tag: `{}`.",
-            image.name, image.tag, tag
-        ),
-        None => {
-            let pattern = match &statement.extractor() {
-                Some(extractor) => extractor.to_string(),
-                None => default_extractor.to_string(),
-            };
-            format!(
-                "Current: `{}:{}`. No tag matching `{}` found. (Searched latest {} tags.)",
-                image.name, image.tag, pattern, amount
-            )
-        }
-    };
-    Ok(output)
+        .fetch(&image.name, &Page::first(amount))
+        .context("Failed to fetch tags.")?;
+    let current_version = extractor.extract_from(&image.tag).unwrap();
+    let (compatible, breaking): (Vec<(Version, String)>, Vec<(Version, String)>) = extractor
+        .extract(tags)
+        .partition(|(candidate, _)| current_version.upgrades_to(candidate, breaking_degree));
+
+    let max_compatible = compatible
+        .into_iter()
+        .filter(|(candidate, _)| candidate > &current_version)
+        .max()
+        .map(|(_, tag)| tag);
+    let max_breaking = breaking
+        .into_iter()
+        .filter(|(candidate, _)| candidate > &current_version)
+        .max()
+        .map(|(_, tag)| tag);
+    Ok(Upgrade {
+        compatible: max_compatible,
+        breaking: max_breaking,
+    })
+}
+
+type Tag = String;
+
+struct Upgrade {
+    compatible: Option<Tag>,
+    breaking: Option<Tag>,
 }

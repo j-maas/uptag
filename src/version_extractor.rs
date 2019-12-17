@@ -191,11 +191,11 @@ impl Version {
         }
     }
 
-    pub fn should_upgrade_to(&self, other: Self, breaking_degree: usize) -> bool {
+    pub fn upgrades_to(&self, other: &Self, breaking_degree: usize) -> bool {
         self.sameness_degree_with(other) >= breaking_degree
     }
 
-    pub fn sameness_degree_with(&self, other: Self) -> usize {
+    fn sameness_degree_with(&self, other: &Self) -> usize {
         self.parts
             .iter()
             .zip(other.parts.iter())
@@ -422,12 +422,12 @@ mod tests {
 
         #[test]
         fn allows_nonbreaking_upgrade((smaller, greater) in version_seq_no_break(5, 2)) {
-            prop_assert!(smaller.should_upgrade_to(greater, 2));
+            prop_assert!(smaller.upgrades_to(&greater, 2));
         }
 
         #[test]
         fn prevents_breaking_upgrade((smaller, greater) in version_seq_with_break(5, 2)) {
-            prop_assert!(!smaller.should_upgrade_to(greater, 2));
+            prop_assert!(!smaller.upgrades_to(&greater, 2));
         }
     }
 }
