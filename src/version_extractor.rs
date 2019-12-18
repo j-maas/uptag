@@ -85,21 +85,21 @@ where
 }
 
 impl VersionExtractor {
-    pub fn as_str(&self) -> &str {
-        self.regex.as_str()
+    pub fn new(regex: Regex) -> VersionExtractor {
+        VersionExtractor { regex }
     }
 
-    pub fn parse<S>(regex: S) -> Result<VersionExtractor, regex::Error>
+    pub fn parse<S>(pattern: S) -> Result<VersionExtractor, regex::Error>
     where
         S: AsRef<str>,
     {
         Ok(VersionExtractor {
-            regex: Regex::new(regex.as_ref())?,
+            regex: Regex::new(pattern.as_ref())?,
         })
     }
 
-    pub fn from(regex: Regex) -> VersionExtractor {
-        VersionExtractor { regex }
+    pub fn as_str(&self) -> &str {
+        self.regex.as_str()
     }
 
     pub fn matches<T>(&self, candidate: T) -> bool
