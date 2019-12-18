@@ -15,7 +15,8 @@ use structopt::StructOpt;
 use updock::Matches;
 use updock::{DockerHubTagFetcher, TagFetcher};
 use updock::{Image, ImageName};
-use updock::{Version, VersionExtractor};
+use updock::{Update, Updock};
+use updock::{VersionExtractor, VersionTag};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -97,7 +98,8 @@ fn check(opts: CheckOpts) -> Result<()> {
         .context("Failed to read from stdin.")?;
 
     let amount = 25;
-    let upgrades = check_input(input, &opts.default_pattern, amount)?;
+    let updock = Updock::default();
+    let upgrades = check_input(&updock, input, &opts.default_pattern, amount)?;
 
     let output = if opts.json {
         let map = upgrades
@@ -109,25 +111,20 @@ fn check(opts: CheckOpts) -> Result<()> {
         upgrades
             .into_iter()
             .map(|(image, upgrade, pattern)| match upgrade {
-                Upgrade {
-                    compatible: Some(compatible),
-                    breaking: Some(breaking),
-                } => format!(
+                Some(Update::Both {
+                    compatible,
+                    breaking,
+                }) => format!(
                     "{} can upgrade to `{}`, and has breaking upgrade to `{}`.",
                     image, compatible, breaking
                 ),
-                Upgrade {
-                    compatible: Some(compatible),
-                    breaking: None,
-                } => format!("{} can upgrade to `{}`.", image, compatible),
-                Upgrade {
-                    compatible: None,
-                    breaking: Some(breaking),
-                } => format!("{} has breaking upgrade to `{}`.", image, breaking),
-                Upgrade {
-                    compatible: None,
-                    breaking: None,
-                } => format!(
+                Some(Update::Compatible(compatible)) => {
+                    format!("{} can upgrade to `{}`.", image, compatible)
+                }
+                Some(Update::Breaking(breaking)) => {
+                    format!("{} has breaking upgrade to `{}`.", image, breaking)
+                }
+                None => format!(
                     "{} has no upgrade matching `{}` in the latest {} tags.",
                     image, pattern, amount
                 ),
@@ -140,65 +137,48 @@ fn check(opts: CheckOpts) -> Result<()> {
     Ok(())
 }
 
-fn check_input(
+fn check_input<T>(
+    updock: &Updock<T>,
     input: String,
     default_extractor: &Option<VersionExtractor>,
     amount: usize,
-) -> Result<Vec<(Image, Upgrade, String)>> {
+) -> Result<Vec<(Image, Option<Update>, String)>>
+where
+    T: TagFetcher + std::fmt::Debug + 'static,
+    T::Error: 'static + Send + Sync,
+{
     Matches::iter(&input)
         .map(|statement| {
             let image = statement.image();
-            let statement_extractor = statement
-                .extractor()
-                .transpose()?;
-            let extractor = statement_extractor.as_ref()
+            let statement_extractor = statement.extractor().transpose()?;
+            let extractor = statement_extractor
+                .as_ref()
                 .or_else(|| default_extractor.as_ref())
-                .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
-            let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
+                .ok_or_else(|| anyhow!(
+                    "Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.",
+                     image
+                    )
+                )?;
+            let current_version = VersionTag::from(extractor, image.tag.clone())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "The current tag `{}` does not match the pattern `{}`.",
+                        image.tag,
+                        extractor.as_str()
+                    )
+                })?;
+            let upgrade = updock
+                .check_update(
+                    &image.name,
+                    &current_version,
+                    extractor,
+                    statement.breaking_degree(),
+                    amount
+                )
                 .with_context(|| format!("Failed to check {}.", statement.image()))?;
             Ok((image, upgrade, extractor.to_string()))
         })
         .collect()
-}
-
-fn check_statement(
-    image: &Image,
-    extractor: &VersionExtractor,
-    breaking_degree: usize,
-    amount: usize,
-) -> Result<Upgrade> {
-    let fetcher = DockerHubTagFetcher::new();
-    let tags = fetcher
-        .fetch(&image.name, amount)
-        .context("Failed to fetch tags.")?;
-
-    let current_version = extractor.extract_from(&image.tag).unwrap(); // TODO: This can fail if the image tag does not match the pattern. It thus needs a graceful error.
-    let (compatible, breaking): (Vec<(Version, String)>, Vec<(Version, String)>) = extractor
-        .extract(tags)
-        .partition(|(candidate, _)| current_version.upgrades_to(candidate, breaking_degree));
-
-    let max_compatible = compatible
-        .into_iter()
-        .filter(|(candidate, _)| candidate > &current_version)
-        .max()
-        .map(|(_, tag)| tag);
-    let max_breaking = breaking
-        .into_iter()
-        .filter(|(candidate, _)| candidate > &current_version)
-        .max()
-        .map(|(_, tag)| tag);
-    Ok(Upgrade {
-        compatible: max_compatible,
-        breaking: max_breaking,
-    })
-}
-
-type Tag = String;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Upgrade {
-    compatible: Option<Tag>,
-    breaking: Option<Tag>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,6 +199,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
 
     let compose_dir = opts.input.parent().unwrap();
     let amount = 25;
+    let updock = Updock::default();
     let result = compose
         .services
         .into_iter()
@@ -226,7 +207,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
             let path = compose_dir.join(service.build).join("Dockerfile");
             let input = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read file `{}`.", path.display()))?;
-            let upgrades = check_input(input, &opts.check_opts.default_pattern, amount)?;
+            let upgrades = check_input(&updock, input, &opts.check_opts.default_pattern, amount)?;
 
             Ok((service_name, upgrades))
         })
@@ -254,25 +235,20 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
                 let upgrades_output = upgrades
                     .into_iter()
                     .map(|(image, upgrade, pattern)| match upgrade {
-                        Upgrade {
-                            compatible: Some(compatible),
-                            breaking: Some(breaking),
-                        } => format!(
+                        Some(Update::Both {
+                            compatible,
+                            breaking,
+                        }) => format!(
                             "{} can upgrade to `{}`, and has breaking upgrade to `{}`.",
                             image, compatible, breaking
                         ),
-                        Upgrade {
-                            compatible: Some(compatible),
-                            breaking: None,
-                        } => format!("{} can upgrade to `{}`.", image, compatible),
-                        Upgrade {
-                            compatible: None,
-                            breaking: Some(breaking),
-                        } => format!("{} has breaking upgrade to `{}`.", image, breaking),
-                        Upgrade {
-                            compatible: None,
-                            breaking: None,
-                        } => format!(
+                        Some(Update::Compatible(compatible)) => {
+                            format!("{} can upgrade to `{}`.", image, compatible)
+                        }
+                        Some(Update::Breaking(breaking)) => {
+                            format!("{} has breaking upgrade to `{}`.", image, breaking)
+                        }
+                        None => format!(
                             "{} has no upgrade matching `{}` in the latest {} tags.",
                             image, pattern, amount
                         ),
