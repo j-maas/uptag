@@ -46,7 +46,7 @@ struct CheckOpts {
 #[derive(Debug, StructOpt)]
 struct CheckComposeOpts {
     #[structopt(short, long, parse(from_os_str))]
-    input: PathBuf,
+    file: PathBuf,
     #[structopt(flatten)]
     check_opts: CheckOpts,
 }
@@ -192,12 +192,12 @@ struct Service {
 }
 
 fn check_compose(opts: CheckComposeOpts) -> Result<()> {
-    let compose_file = fs::File::open(&opts.input)
-        .with_context(|| format!("Failed to read file `{}`.", opts.input.display()))?;
+    let compose_file = fs::File::open(&opts.file)
+        .with_context(|| format!("Failed to read file `{}`.", opts.file.display()))?;
     let compose: DockerCompose =
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file.")?;
 
-    let compose_dir = opts.input.parent().unwrap();
+    let compose_dir = opts.file.parent().unwrap();
     let amount = 25;
     let updock = Updock::default();
     let result = compose
