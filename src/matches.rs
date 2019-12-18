@@ -1,17 +1,8 @@
-use std::fmt;
-
 use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::image::{Image, ImageName};
 use crate::version_extractor::{Tagged, VersionExtractor};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FromStatement<'t> {
-    matches: Matches<'t>,
-    extractor: Option<VersionExtractor>,
-    breaking_degree: usize,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matches<'t> {
@@ -49,75 +40,31 @@ impl<'t> Matches<'t> {
             breaking_degree: captures.name("breaking_degree"),
         }
     }
-}
 
-impl<'t> fmt::Display for FromStatement<'t> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let breaking_degree = if self.breaking_degree == 0 {
-            "".to_string()
-        } else {
-            format!(", breaking degree: {}", self.breaking_degree)
-        };
-        let pattern = match &self.extractor {
-            Some(pattern) => format!(
-                "# updock pattern: \"{}\"{}\n",
-                pattern.as_str(),
-                breaking_degree
-            ),
-            None => "".to_string(),
-        };
-        write!(f, "{}FROM {}", pattern, self.image())
-    }
-}
-
-impl<'t> FromStatement<'t> {
     pub fn image(&self) -> Image {
         Image {
             name: ImageName::from(
-                self.matches.user.map(|m| m.as_str().to_string()),
-                self.matches.image.as_str().to_string(),
+                self.user.map(|m| m.as_str().to_string()),
+                self.image.as_str().to_string(),
             ),
-            tag: self.matches.tag.as_str().to_string(),
+            tag: self.tag.as_str().to_string(),
         }
     }
 
-    pub fn extractor(&self) -> &Option<VersionExtractor> {
-        &self.extractor
+    pub fn extractor(&self) -> Option<Result<VersionExtractor, regex::Error>> {
+        self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
     }
 
     pub fn breaking_degree(&self) -> usize {
         self.breaking_degree
-    }
-
-    pub fn first(dockerfile: &'t str) -> Result<Option<FromStatement<'t>>, regex::Error> {
-        Matches::first(dockerfile).map(Self::from).transpose()
-    }
-
-    pub fn iter(dockerfile: &'t str) -> Result<Vec<FromStatement<'t>>, regex::Error> {
-        Matches::iter(dockerfile).map(Self::from).collect()
-    }
-
-    fn from(matches: Matches<'t>) -> Result<FromStatement<'t>, regex::Error> {
-        let extractor = matches
-            .pattern
-            .map(|m| VersionExtractor::parse(m.as_str()))
-            .transpose()?;
-        let breaking_degree = matches
-            .breaking_degree
             .map(|m| m.as_str().parse().unwrap())
-            .unwrap_or(0);
-
-        Ok(FromStatement {
-            matches,
-            extractor,
-            breaking_degree,
-        })
+            .unwrap_or(0)
     }
 }
 
-impl<'t> Tagged for FromStatement<'t> {
+impl<'t> Tagged for Matches<'t> {
     fn tag(&self) -> &str {
-        self.matches.tag.as_str()
+        self.tag.as_str()
     }
 }
 
@@ -126,37 +73,37 @@ mod test {
     use super::*;
 
     #[derive(Debug)]
-    struct ExpectedFromStatment {
+    struct ExpectedMatches {
         image_name: ImageName,
         image_tag: &'static str,
-        extractor: Option<VersionExtractor>,
+        extractor: Option<Result<VersionExtractor, regex::Error>>,
         breaking_degree: usize,
     }
 
-    impl<'t> PartialEq<FromStatement<'t>> for ExpectedFromStatment {
-        fn eq(&self, other: &FromStatement) -> bool {
+    impl<'t> PartialEq<Matches<'t>> for ExpectedMatches {
+        fn eq(&self, other: &Matches) -> bool {
             let other_image = other.image();
             self.image_name == other_image.name
                 && self.image_tag == other_image.tag
-                && &self.extractor == other.extractor()
+                && self.extractor == other.extractor()
                 && self.breaking_degree == other.breaking_degree()
         }
     }
 
-    impl<'t> PartialEq<ExpectedFromStatment> for FromStatement<'t> {
-        fn eq(&self, other: &ExpectedFromStatment) -> bool {
+    impl<'t> PartialEq<ExpectedMatches> for Matches<'t> {
+        fn eq(&self, other: &ExpectedMatches) -> bool {
             other == self
         }
     }
 
-    // This workaround is necessary for now.
+    // This workaround is currenctly necessary,
+    // because Rust does not correctly recognize that we can compare Option<Matches> to Option<ExpectedMatches>.
     // For details see https://stackoverflow.com/a/49903940/3287963
-    macro_rules! assert_eq_result_option {
+    macro_rules! assert_eq_option {
         ($actual:expr, $expected:expr) => {
             match ($actual, $expected) {
-                (Ok(Some(a)), Ok(Some(b))) => assert_eq!(a, b),
-                (Ok(None), Ok(None)) => (),
-                (Err(a), Err(b)) => assert_eq!(a, b),
+                (Some(a), Some(b)) => assert_eq!(a, b),
+                (None, None) => (),
                 (a, b) => panic!(
                     r#"assertion failed: `(left == right)`
     left: `{:?}`,
@@ -171,48 +118,46 @@ mod test {
     fn extracts_full_statement() {
         let dockerfile =
             "# updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$\", breaking degree: 1\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
-        assert_eq_result_option!(
-            FromStatement::first(dockerfile),
-            Ok(Some(ExpectedFromStatment {
+        assert_eq_option!(
+            Matches::first(dockerfile),
+            Some(ExpectedMatches {
                 image_name: ImageName::User {
                     user: "gitlab".into(),
                     image: "gitlab-ce".into()
                 },
                 image_tag: "12.3.2-ce.0",
-                extractor: Some(
-                    VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$").unwrap()
-                ),
+                extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$")),
                 breaking_degree: 1,
-            }))
+            })
         );
     }
 
     #[test]
     fn extracts_minimal_statement() {
         let dockerfile = "FROM ubuntu:14.04";
-        assert_eq_result_option!(
-            FromStatement::first(dockerfile),
-            Ok(Some(ExpectedFromStatment {
+        assert_eq_option!(
+            Matches::first(dockerfile),
+            Some(ExpectedMatches {
                 image_name: ImageName::Official {
                     image: "ubuntu".into()
                 },
                 image_tag: "14.04",
                 extractor: None,
                 breaking_degree: 0,
-            }))
+            })
         )
     }
 
     #[test]
     fn does_not_match_empty_tag() {
         let dockerfile = "FROM ubuntu";
-        assert_eq!(FromStatement::first(dockerfile), Ok(None))
+        assert_eq!(Matches::first(dockerfile), None)
     }
 
     #[test]
     fn does_not_match_digest() {
         let dockerfile =
             "FROM ubuntu@bcf9d02754f659706860d04fd261207db010db96e782e2eb5d5bbd7168388b89";
-        assert_eq!(FromStatement::first(dockerfile), Ok(None))
+        assert_eq!(Matches::first(dockerfile), None)
     }
 }

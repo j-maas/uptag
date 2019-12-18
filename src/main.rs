@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use structopt::StructOpt;
 
-use updock::FromStatement;
+use updock::Matches;
 use updock::{DockerHubTagFetcher, Page, TagFetcher};
 use updock::{Image, ImageName};
 use updock::{Version, VersionExtractor};
@@ -145,14 +145,13 @@ fn check_input(
     default_extractor: &Option<VersionExtractor>,
     amount: usize,
 ) -> Result<Vec<(Image, Upgrade, String)>> {
-    FromStatement::iter(&input)
-        .context("Failed to parse a statement.")?
-        .into_iter()
+    Matches::iter(&input)
         .map(|statement| {
             let image = statement.image();
-            let extractor = statement
+            let statement_extractor = statement
                 .extractor()
-                .as_ref()
+                .transpose()?;
+            let extractor = statement_extractor.as_ref()
                 .or_else(|| default_extractor.as_ref())
                 .ok_or_else(|| anyhow!("Failed to find version pattern for {}. Please specify it either in an annotation or give a default version pattern.", image))?;
             let upgrade = check_statement(&image, extractor, statement.breaking_degree(), amount)
@@ -172,7 +171,6 @@ fn check_statement(
     let tags = fetcher
         .fetch(&image.name, &Page::first(amount))
         .context("Failed to fetch tags.")?;
-
 
     let current_version = extractor.extract_from(&image.tag).unwrap(); // TODO: This can fail if the image tag does not match the pattern. It thus needs a graceful error.
     let (compatible, breaking): (Vec<(Version, String)>, Vec<(Version, String)>) = extractor
