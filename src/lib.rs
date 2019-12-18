@@ -232,4 +232,25 @@ mod test {
             })
         );
     }
+
+    #[test]
+    fn ignores_not_matching_version() {
+        let image_name = ImageName::from(None, "ubuntu".to_string());
+        let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
+        let current_version = VersionTag::from(&extractor, "14.04".to_string()).unwrap();
+
+        let fetcher = ArrayFetcher::with(
+            image_name.clone(),
+            vec![
+                "13.03".to_string(),
+                "14.03".to_string(),
+                "14.04".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let result = updock.check_update(&image_name, &current_version, &extractor, 1, 25);
+        let actual = result.unwrap_or_else(|error| panic!("{}", error));
+        assert_eq!(actual, None);
+    }
 }
