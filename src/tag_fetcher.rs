@@ -1,6 +1,6 @@
 use log;
 use reqwest;
-use serde::{Deserialize};
+use serde::Deserialize;
 
 use crate::image::ImageName;
 
@@ -16,7 +16,12 @@ pub struct DockerHubTagFetcher {}
 #[derive(Deserialize, Debug)]
 struct Response {
     next: String,
-    results: Vec<Tag>,
+    results: Vec<TagInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TagInfo {
+    name: String,
 }
 
 type Tag = String;
@@ -38,7 +43,8 @@ impl TagFetcher for DockerHubTagFetcher {
         let response: Response = response.json()?;
         log::info!("Fetch was successful.");
 
-        Ok(response.results)
+        let tags = response.results.into_iter().map(|info| info.name).collect();
+        Ok(tags)
     }
 }
 
