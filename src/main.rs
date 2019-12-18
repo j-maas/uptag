@@ -13,7 +13,7 @@ use serde_json;
 use structopt::StructOpt;
 
 use updock::Matches;
-use updock::{DockerHubTagFetcher, Page, TagFetcher};
+use updock::{DockerHubTagFetcher, TagFetcher};
 use updock::{Image, ImageName};
 use updock::{Version, VersionExtractor};
 
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
 fn fetch(opts: FetchOpts) -> Result<()> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
-        .fetch(&opts.image, &Page::first(opts.amount))
+        .fetch(&opts.image, opts.amount)
         .context("Failed to fetch tags.")?;
 
     let result = if let Some(extractor) = opts.pattern {
@@ -169,7 +169,7 @@ fn check_statement(
 ) -> Result<Upgrade> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
-        .fetch(&image.name, &Page::first(amount))
+        .fetch(&image.name, amount)
         .context("Failed to fetch tags.")?;
 
     let current_version = extractor.extract_from(&image.tag).unwrap(); // TODO: This can fail if the image tag does not match the pattern. It thus needs a graceful error.

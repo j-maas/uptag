@@ -1,25 +1,13 @@
-use chrono::NaiveDateTime;
 use log;
 use reqwest;
-use serde::{de, Deserialize, Deserializer};
+use serde::{Deserialize};
 
 use crate::image::ImageName;
 
 pub trait TagFetcher {
     type Error: std::error::Error;
 
-    fn fetch(&self, image: &ImageName, page: &Page) -> Result<Vec<String>, Self::Error>;
-}
-
-pub struct Page {
-    size: usize,
-    page: usize,
-}
-
-impl Page {
-    pub fn first(size: usize) -> Page {
-        Page { size, page: 1 }
-    }
+    fn fetch(&self, image: &ImageName, amount: usize) -> Result<Vec<Tag>, Self::Error>;
 }
 
 #[derive(Debug, Default)]
@@ -28,23 +16,7 @@ pub struct DockerHubTagFetcher {}
 #[derive(Deserialize, Debug)]
 struct Response {
     next: String,
-    results: Vec<TagFromStatement>,
-}
-
-#[derive(Deserialize, Debug)]
-struct TagFromStatement {
-    name: String,
-    id: u32,
-    #[serde(deserialize_with = "naive_date_time_from_str")]
-    last_updated: NaiveDateTime,
-}
-
-fn naive_date_time_from_str<'de, D>(deserializer: D) -> Result<NaiveDateTime, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S.%fZ").map_err(de::Error::custom)
+    results: Vec<Tag>,
 }
 
 type Tag = String;
@@ -52,11 +24,11 @@ type Tag = String;
 impl TagFetcher for DockerHubTagFetcher {
     type Error = reqwest::Error;
 
-    fn fetch(&self, name: &ImageName, page: &Page) -> Result<Vec<Tag>, Self::Error> {
+    fn fetch(&self, name: &ImageName, amount: usize) -> Result<Vec<Tag>, Self::Error> {
         let name_path = Self::format_name_for_url(name);
         let url = format!(
             "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}",
-            name_path, page.size, page.page
+            name_path, amount, 1
         );
 
         log::info!("Fetching tags for {}:\n{}", name_path, url);
@@ -66,7 +38,7 @@ impl TagFetcher for DockerHubTagFetcher {
         let response: Response = response.json()?;
         log::info!("Fetch was successful.");
 
-        Ok(response.results.into_iter().map(|tag| tag.name).collect())
+        Ok(response.results)
     }
 }
 
