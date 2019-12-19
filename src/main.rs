@@ -101,7 +101,7 @@ fn check(opts: CheckOpts) -> Result<()> {
         .filter_map(|result| match result {
             Ok(res) => Some(res),
             Err(error) => {
-                eprintln!("{}", error);
+                eprintln!("{:#}", anyhow::Error::new(error));
                 None
             }
         })
@@ -153,7 +153,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
                 .filter_map(|result| match result {
                     Ok(res) => Some(res),
                     Err(error) => {
-                        eprintln!("{}", error);
+                        eprintln!("{:#}", anyhow::Error::new(error));
                         None
                     }
                 })
