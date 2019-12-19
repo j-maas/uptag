@@ -24,22 +24,18 @@ use regex::Regex;
 ///
 /// ```rust
 /// # extern crate updock; use updock::VersionExtractor;
-/// # fn main() {
 /// let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
 /// assert!(extractor.matches("1.2.3"));
 /// assert!(!extractor.matches("1.2.3-debian"));
-/// # }
 /// ```
 ///
 /// Detect a sequential version after a prefix:
 ///
 /// ```rust
 /// # extern crate updock; use updock::VersionExtractor;
-/// # fn main() {
 /// let extractor = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
 /// assert!(extractor.matches("debian-r24"));
 /// assert!(!extractor.matches("debian-r24-alpha"));
-/// # }
 /// ```
 ///
 /// [unnamed capture groups]: https://docs.rs/regex/1.3.1/regex/#grouping-and-flags
@@ -379,7 +375,7 @@ mod tests {
         {
             let smaller = Version::new(version.clone()).unwrap();
             version[index] += upgrade;
-            let greater = Version::new(version.clone()).unwrap();
+            let greater = Version::new(version).unwrap();
             (smaller, greater)
         }
     }
@@ -393,7 +389,7 @@ mod tests {
         {
             let smaller = Version::new(version.clone()).unwrap();
             version[index] += upgrade;
-            let greater = Version::new(version.clone()).unwrap();
+            let greater = Version::new(version).unwrap();
             (smaller, greater)
         }
     }
@@ -407,7 +403,7 @@ mod tests {
         {
             let smaller = Version::new(version.clone()).unwrap();
             version[index] += upgrade;
-            let greater = Version::new(version.clone()).unwrap();
+            let greater = Version::new(version).unwrap();
             (smaller, greater)
         }
     }
