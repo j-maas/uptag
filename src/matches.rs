@@ -41,9 +41,13 @@ impl<'t> Matches<'t> {
         }
     }
 
+    pub fn pattern(&self) -> &Option<regex::Match<'t>> {
+        &self.pattern
+    }
+
     pub fn image(&self) -> Image {
         Image {
-            name: ImageName::from(
+            name: ImageName::new(
                 self.user.map(|m| m.as_str().to_string()),
                 self.image.as_str().to_string(),
             ),

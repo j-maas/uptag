@@ -3,7 +3,7 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Image {
     pub name: ImageName,
     pub tag: Tag,
@@ -29,7 +29,14 @@ lazy_static! {
 }
 
 impl ImageName {
-    pub fn new(image: &str) -> Option<ImageName> {
+    pub fn new(user: Option<String>, image: String) -> ImageName {
+        match user {
+            Some(name) => ImageName::User { user: name, image },
+            None => ImageName::Official { image },
+        }
+    }
+
+    pub fn parse(image: &str) -> Option<ImageName> {
         NAME.captures(image).map(|captures| {
             let first = captures.name("first").map(|s| s.as_str().into());
             let second = captures["second"].into(); // Second group is not optional, so access is safe.
@@ -41,13 +48,6 @@ impl ImageName {
                 None => ImageName::Official { image: second },
             }
         })
-    }
-
-    pub fn from(user: Option<String>, image: String) -> ImageName {
-        match user {
-            Some(name) => ImageName::User { user: name, image },
-            None => ImageName::Official { image },
-        }
     }
 }
 
@@ -64,7 +64,7 @@ impl fmt::Display for ImageName {
 impl std::str::FromStr for ImageName {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::new(s).ok_or(ParseError {
+        Self::parse(s).ok_or(ParseError {
             invalid: s.to_string(),
         })
     }
@@ -97,19 +97,19 @@ mod test {
         #[test]
         fn parses_valid_official_name(image in r"[[:word:]]") {
             let expected = ImageName::Official { image: image.clone()};
-            prop_assert_eq!(ImageName::new(&image), Some(expected));
+            prop_assert_eq!(ImageName::parse(&image), Some(expected));
         }
 
         #[test]
         fn parses_valid_user_name(first in r"[[:word:]]", second in r"[[:word:]]") {
             let raw = format!("{}/{}", first, second);
             let expected = ImageName::User { user: first, image: second};
-            prop_assert_eq!(ImageName::new(&raw), Some(expected));
+            prop_assert_eq!(ImageName::parse(&raw), Some(expected));
         }
     }
 
     #[test]
     fn rejects_invalid_name() {
-        assert_eq!(ImageName::new("i/am/invalid"), None);
+        assert_eq!(ImageName::parse("i/am/invalid"), None);
     }
 }
