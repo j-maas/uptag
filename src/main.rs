@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -12,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use structopt::StructOpt;
 
-use updock::ImageName;
-use updock::VersionExtractor;
-use updock::{DockerHubTagFetcher, TagFetcher};
-use updock::{ImageInfo, Update, Updock};
+use updock::{
+    CheckError, DockerHubTagFetcher, Image, ImageName, PatternInfo, TagFetcher, Update, Updock,
+    VersionExtractor,
+};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -42,7 +41,7 @@ struct CheckOpts {
 
 #[derive(Debug, StructOpt)]
 struct CheckComposeOpts {
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(parse(from_os_str))]
     file: PathBuf,
     #[structopt(flatten)]
     check_opts: CheckOpts,
@@ -65,7 +64,7 @@ fn fetch(opts: FetchOpts) -> Result<()> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
         .fetch(&opts.image, opts.amount)
-        .context("Failed to fetch tags.")?;
+        .context("Failed to fetch tags")?;
 
     let result = if let Some(extractor) = opts.pattern {
         let result: Vec<String> = extractor.filter(tags).collect();
@@ -92,32 +91,30 @@ fn check(opts: CheckOpts) -> Result<()> {
     stdin
         .lock()
         .read_to_string(&mut input)
-        .context("Failed to read from stdin.")?;
+        .context("Failed to read from stdin")?;
 
     let amount = 25;
     let updock = Updock::default();
-    let updates = updock
-        .check_input(&input, amount)
-        .filter_map(|result| match result {
-            Ok(res) => Some(res),
-            Err(error) => {
-                eprintln!("{:#}", anyhow::Error::new(error));
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let updates = updock.check_input(&input, amount);
 
-    let output = if opts.json {
+    if opts.json {
         let map = updates
-            .into_iter()
-            .map(|(info, update)| (info.image.to_string(), update))
+            .map(|(image_name, update_result)| {
+                (
+                    image_name.to_string(),
+                    update_result
+                        .map_err(|error| format!("{:#}", anyhow::Error::new(error)))
+                        .map(|(maybe_update, _)| maybe_update),
+                )
+            })
             .collect::<IndexMap<_, _>>(); // IndexMap preserves order.
-        serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+        )
     } else {
-        display_updates(updates.into_iter(), amount)
-    };
-
-    println!("{}", output);
+        println!("{}", display_updates(updates, amount))
+    }
 
     Ok(())
 }
@@ -134,88 +131,107 @@ struct Service {
 
 fn check_compose(opts: CheckComposeOpts) -> Result<()> {
     let compose_file = fs::File::open(&opts.file)
-        .with_context(|| format!("Failed to read file `{}`.", opts.file.display()))?;
+        .with_context(|| format!("Failed to read file `{}`", opts.file.display()))?;
     let compose: DockerCompose =
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file.")?;
 
     let compose_dir = opts.file.parent().unwrap();
     let amount = 25;
     let updock = Updock::default();
-    let result = compose
-        .services
-        .into_iter()
-        .map(|(service_name, service)| {
+    let services = compose.services.into_iter().map(|(service_name, service)| {
+        (service_name, {
             let path = compose_dir.join(service.build).join("Dockerfile");
-            let input = fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read file `{}`.", path.display()))?;
-            let updates = updock
-                .check_input(&input, amount)
-                .filter_map(|result| match result {
-                    Ok(res) => Some(res),
-                    Err(error) => {
-                        eprintln!("{:#}", anyhow::Error::new(error));
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            Ok((service_name, updates))
+            fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read file `{}`", path.display()))
+                .map(|input| updock.check_input(&input, amount).collect::<Vec<_>>())
         })
-        .collect::<Result<Vec<_>>>();
-    let services = result?;
+    });
 
-    let output = if opts.check_opts.json {
+    if opts.check_opts.json {
         let map = services
-            .into_iter()
-            .map(|(service, updates)| {
+            .map(|(service, result)| {
                 (
                     service,
-                    updates
-                        .into_iter()
-                        .map(|(info, update)| (info.image.to_string(), update))
-                        .collect(),
+                    result
+                        .map_err(|error| format!("{:#}", error))
+                        .map(|updates| {
+                            updates
+                                .into_iter()
+                                .map(|(image_name, updates_result)| {
+                                    (
+                                        image_name.to_string(),
+                                        updates_result
+                                            .map_err(|error| {
+                                                format!("{:#}", anyhow::Error::new(error))
+                                            })
+                                            .map(|(maybe_update, _)| maybe_update),
+                                    )
+                                })
+                                .collect()
+                        }),
                 )
             })
-            .collect::<HashMap<_, HashMap<_, _>>>();
-        serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+            .collect::<IndexMap<_, Result<IndexMap<_, _>, String>>>();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&map).context("Failed to serialize result")?
+        )
     } else {
-        services
-            .into_iter()
-            .map(|(service, updates)| {
-                let updates_output = display_updates(updates.into_iter(), amount);
-                format!("Service {}:\n{}", service, updates_output)
-            })
-            .join("\n\n")
-    };
-
-    println!("{}", output);
+        for (service, result) in services {
+            let updates_output = match result {
+                Ok(updates) => {
+                    let updates_output = display_updates(updates, amount);
+                    updates_output.to_string()
+                }
+                Err(error) => format!("{:#}", error),
+            };
+            println!("Service {}:\n{}\n", service, updates_output)
+        }
+    }
 
     Ok(())
 }
 
 fn display_updates(
-    updates: impl Iterator<Item = (ImageInfo, Option<Update>)>,
+    updates: impl IntoIterator<
+        Item = (
+            Image,
+            Result<(Option<Update>, PatternInfo), CheckError<DockerHubTagFetcher>>,
+        ),
+    >,
     amount: usize,
 ) -> String {
     updates
-        .map(|(info, update)| match update {
-            Some(Update::Both {
-                compatible,
-                breaking,
-            }) => format!(
-                "{} can update to `{}`, and has breaking update to `{}`.",
-                info.image, compatible, breaking
-            ),
-            Some(Update::Compatible(compatible)) => {
-                format!("{} can update to `{}`.", info.image, compatible)
-            }
-            Some(Update::Breaking(breaking)) => {
-                format!("{} has breaking update to `{}`.", info.image, breaking)
-            }
-            None => format!(
-                "{} has no update matching `{}` in the latest {} tags.",
-                info.image, info.extractor, amount
-            ),
+        .into_iter()
+        .map(|(image, update_result)| {
+            update_result
+                .map(|(update, pattern_info)| match update {
+                    Some(Update::Both {
+                        compatible,
+                        breaking,
+                    }) => format!(
+                        "{} can update to `{}`, and has breaking update to `{}`.",
+                        image, compatible, breaking
+                    ),
+                    Some(Update::Compatible(compatible)) => {
+                        format!("{} can update to `{}`.", image, compatible)
+                    }
+                    Some(Update::Breaking(breaking)) => {
+                        format!("{} has breaking update to `{}`.", image, breaking)
+                    }
+                    None => format!(
+                        "{} has no update matching `{}` in the latest {} tags.",
+                        image, pattern_info.extractor, amount
+                    ),
+                })
+                .unwrap_or_else(|error| {
+                    dbg!(&error);
+                    format!(
+                        "Failed to check image {}: {:#}",
+                        image.name,
+                        anyhow::Error::new(error)
+                    )
+                })
         })
         .join("\n")
 }

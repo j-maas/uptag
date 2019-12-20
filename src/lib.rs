@@ -37,73 +37,70 @@ where
         &'a self,
         input: &'a str,
         amount: usize,
-    ) -> impl Iterator<Item = Result<(ImageInfo, Option<Update>), CheckError<T>>> + 'a {
+    ) -> impl Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)> + 'a
+    {
         Matches::iter(input).map(move |matches| {
-            use CheckErrorKind::*;
-
             let image = matches.image();
-            let pattern = matches.pattern().ok_or(CheckError {
-                image: image.clone(),
-                kind: UnspecifiedPattern,
-            })?;
-            let extractor =
-                VersionExtractor::parse(pattern.as_str()).map_err(|error| CheckError {
-                    image: image.clone(),
-                    kind: InvalidPattern {
-                        pattern: pattern.as_str().to_string(),
-                        source: error,
-                    },
-                })?;
-            let current_version =
-                VersionTag::from(&extractor, image.tag.clone()).ok_or(CheckError {
-                    image: image.clone(),
-                    kind: InvalidCurrentTag {
-                        tag: image.tag.clone(),
-                        pattern: extractor.to_string(),
-                    },
-                })?;
-            let breaking_degree = matches.breaking_degree();
-            self.check_update(
-                &image.name,
-                &current_version,
-                &extractor,
-                breaking_degree,
-                amount,
+            let result = Self::extract_check_info(
+                &image.tag,
+                &matches.pattern().map(|m| m.as_str()),
+                matches.breaking_degree(),
             )
-            .map_err(|error| CheckError {
-                image: image.clone(),
-                kind: FailedFetch(error),
-            })
-            .map(|maybe_update| {
-                (
-                    ImageInfo {
-                        image,
-                        extractor,
-                        breaking_degree,
-                    },
-                    maybe_update,
-                )
-            })
+            .and_then(|(current_version, pattern_info)| {
+                self.check_update(&image.name, &current_version, &pattern_info, amount)
+                    .map_err(CheckError::FailedFetch)
+                    .map(|maybe_update| (maybe_update, pattern_info))
+            });
+
+            (image, result)
         })
+    }
+
+    fn extract_check_info(
+        tag: &str,
+        pattern: &Option<&str>,
+        breaking_degree: usize,
+    ) -> Result<(Version, PatternInfo), CheckError<T>> {
+        use CheckError::*;
+
+        let pattern = pattern.ok_or(UnspecifiedPattern)?;
+        let extractor = VersionExtractor::parse(pattern).map_err(|error| InvalidPattern {
+            pattern: pattern.to_string(),
+            source: error,
+        })?;
+        let current_version = extractor.extract_from(tag).ok_or(InvalidCurrentTag {
+            tag: tag.to_string(),
+            pattern: extractor.to_string(),
+        })?;
+        let breaking_degree = breaking_degree;
+        Ok((
+            current_version,
+            PatternInfo {
+                extractor,
+                breaking_degree,
+            },
+        ))
     }
 
     pub fn check_update(
         &self,
         image_name: &ImageName,
-        current_version: &VersionTag,
-        extractor: &VersionExtractor,
-        breaking_degree: usize,
+        current_version: &Version,
+        pattern: &PatternInfo,
         amount: usize,
     ) -> Result<Option<Update>, T::Error> {
         let tags = self.fetcher.fetch(image_name, amount)?;
         let (compatible, breaking): (Vec<_>, Vec<_>) = tags
             .into_iter()
-            .filter_map(|tag| extractor.extract_from(&tag).map(|version| (tag, version)))
-            .filter(|(_, version)| current_version.version.lt(version))
+            .filter_map(|tag| {
+                pattern
+                    .extractor
+                    .extract_from(&tag)
+                    .map(|version| (tag, version))
+            })
+            .filter(|(_, version)| current_version < version)
             .partition(|(_, version)| {
-                current_version
-                    .version
-                    .is_breaking_update_to(version, breaking_degree)
+                current_version.is_breaking_update_to(version, pattern.breaking_degree)
             });
 
         let max_compatible = compatible
@@ -120,24 +117,9 @@ where
 }
 
 #[derive(Debug)]
-pub struct ImageInfo {
-    pub image: Image,
+pub struct PatternInfo {
     pub extractor: VersionExtractor,
     pub breaking_degree: usize,
-}
-
-#[derive(Debug)]
-pub struct VersionTag {
-    tag: Tag,
-    version: Version,
-}
-
-impl VersionTag {
-    pub fn from(extractor: &VersionExtractor, tag: Tag) -> Option<Self> {
-        extractor
-            .extract_from(&tag)
-            .map(|version| VersionTag { tag, version })
-    }
 }
 
 type Tag = String;
@@ -164,32 +146,20 @@ impl Update {
 }
 
 #[derive(Debug, Error)]
-#[error("Failed to check image {image}")]
-pub struct CheckError<T>
-where
-    T: TagFetcher + std::fmt::Debug + 'static,
-    T::Error: 'static,
-{
-    image: Image,
-    #[source]
-    kind: CheckErrorKind<T>,
-}
-
-#[derive(Debug, Error)]
-pub enum CheckErrorKind<T>
+pub enum CheckError<T>
 where
     // The Debug trait is required here, because the Debug derive incorrectly infers trait bounds on `T`.
     // For details, see https://github.com/rust-lang/rust/issues/26925
     T: TagFetcher + std::fmt::Debug,
     T::Error: 'static,
 {
-    #[error("Failed to fetch tags.")]
+    #[error("Failed to fetch tags")]
     FailedFetch(#[source] T::Error),
-    #[error("The current tag `{tag}` does not match the required pattern `{pattern}`.")]
+    #[error("The current tag `{tag}` does not match the required pattern `{pattern}`")]
     InvalidCurrentTag { tag: Tag, pattern: String },
-    #[error("Failed to find version pattern.")]
+    #[error("Failed to find version pattern")]
     UnspecifiedPattern,
-    #[error("The version pattern `{pattern}` is invalid.")]
+    #[error("The version pattern `{pattern}` is invalid")]
     InvalidPattern {
         pattern: String,
         #[source]
@@ -239,7 +209,11 @@ mod test {
     fn finds_compatible_update() {
         let image_name = ImageName::new(None, "ubuntu".to_string());
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = VersionTag::from(&extractor, "14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let pattern_info = PatternInfo {
+            extractor,
+            breaking_degree: 1,
+        };
 
         let fetcher = ArrayFetcher::with(
             image_name.clone(),
@@ -252,7 +226,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &extractor, 1, 25);
+        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Compatible("14.05".to_string())));
     }
@@ -261,7 +235,11 @@ mod test {
     fn finds_breaking_update() {
         let image_name = ImageName::new(None, "ubuntu".to_string());
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = VersionTag::from(&extractor, "14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let pattern_info = PatternInfo {
+            extractor,
+            breaking_degree: 1,
+        };
 
         let fetcher = ArrayFetcher::with(
             image_name.clone(),
@@ -274,7 +252,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &extractor, 1, 25);
+        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Breaking("15.02".to_string())));
     }
@@ -283,7 +261,11 @@ mod test {
     fn finds_compatible_and_breaking_update() {
         let image_name = ImageName::new(None, "ubuntu".to_string());
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = VersionTag::from(&extractor, "14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let pattern_info = PatternInfo {
+            extractor,
+            breaking_degree: 1,
+        };
 
         let fetcher = ArrayFetcher::with(
             image_name.clone(),
@@ -297,7 +279,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &extractor, 1, 25);
+        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -312,7 +294,11 @@ mod test {
     fn ignores_lesser_version() {
         let image_name = ImageName::new(None, "ubuntu".to_string());
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = VersionTag::from(&extractor, "14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let pattern_info = PatternInfo {
+            extractor,
+            breaking_degree: 1,
+        };
 
         let fetcher = ArrayFetcher::with(
             image_name.clone(),
@@ -324,18 +310,21 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &extractor, 1, 25);
+        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, None);
     }
 
     #[test]
-    fn finds_update_from_string() {
+    fn finds_compatible_update_from_string() {
         let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
 
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
                 "13.03".to_string(),
                 "14.03".to_string(),
@@ -346,22 +335,18 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_input(input, 25).collect::<Result<Vec<_>, _>>();
-        let actual_updates = result
-            .unwrap_or_else(|error| panic!("{}", error))
-            .into_iter()
-            .map(|(info, update)| (info.image, update))
+        let results = updock.check_input(input, 25);
+        let actual_updates = results
+            .filter_map(|(image_name, result)| {
+                result
+                    .ok()
+                    .map(|(maybe_update, _)| (image_name, maybe_update))
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(
             actual_updates,
-            vec![(
-                Image {
-                    name: image_name,
-                    tag: "14.04".to_string()
-                },
-                Some(Update::Compatible("14.12".to_string()))
-            )]
+            vec![(image, Some(Update::Compatible("14.12".to_string())))]
         );
     }
 
@@ -369,9 +354,12 @@ mod test {
     fn finds_breaking_update_from_string() {
         let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
 
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
                 "13.03".to_string(),
                 "14.03".to_string(),
@@ -381,22 +369,16 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_input(input, 25).collect::<Result<Vec<_>, _>>();
-        let actual_updates = result
-            .unwrap_or_else(|error| panic!("{}", error))
-            .into_iter()
-            .map(|(info, update)| (info.image, update))
+        let results = updock.check_input(input, 25);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result.ok().map(|(maybe_update, _)| (image, maybe_update))
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(
             actual_updates,
-            vec![(
-                Image {
-                    name: image_name,
-                    tag: "14.04".to_string()
-                },
-                Some(Update::Breaking("15.01".to_string()))
-            )]
+            vec![(image, Some(Update::Breaking("15.01".to_string())))]
         );
     }
 
@@ -404,9 +386,12 @@ mod test {
     fn finds_compatible_and_breaking_update_from_string() {
         let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
 
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
                 "13.03".to_string(),
                 "14.03".to_string(),
@@ -418,20 +403,17 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_input(input, 25).collect::<Result<Vec<_>, _>>();
-        let actual_updates = result
-            .unwrap_or_else(|error| panic!("{}", error))
-            .into_iter()
-            .map(|(info, update)| (info.image, update))
+        let results = updock.check_input(input, 25);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result.ok().map(|(maybe_update, _)| (image, maybe_update))
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(
             actual_updates,
             vec![(
-                Image {
-                    name: image_name,
-                    tag: "14.04".to_string()
-                },
+                image,
                 Some(Update::Both {
                     compatible: "14.12".to_string(),
                     breaking: "15.01".to_string()
@@ -444,9 +426,12 @@ mod test {
     fn ignores_lesser_versions_from_string() {
         let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
 
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
                 "13.03".to_string(),
                 "14.03".to_string(),
@@ -455,22 +440,13 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_input(input, 25).collect::<Result<Vec<_>, _>>();
-        let actual_updates = result
-            .unwrap_or_else(|error| panic!("{}", error))
-            .into_iter()
-            .map(|(info, update)| (info.image, update))
+        let results = updock.check_input(input, 25);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result.ok().map(|(maybe_update, _)| (image, maybe_update))
+            })
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            actual_updates,
-            vec![(
-                Image {
-                    name: image_name,
-                    tag: "14.04".to_string()
-                },
-                None
-            )]
-        );
+        assert_eq!(actual_updates, vec![(image, None)]);
     }
 }
