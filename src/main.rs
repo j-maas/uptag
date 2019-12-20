@@ -25,7 +25,6 @@ enum Opts {
 
 #[derive(Debug, StructOpt)]
 struct FetchOpts {
-    #[structopt(short, long)]
     image: ImageName,
     #[structopt(short, long)]
     pattern: Option<VersionExtractor>,
