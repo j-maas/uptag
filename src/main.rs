@@ -210,11 +210,11 @@ fn display_updates(
                         compatible,
                         breaking,
                     }) => format!(
-                        "{} can update to `{}`, and has breaking update to `{}`.",
+                        "{} has update to `{}`, and has breaking update to `{}`.",
                         image, compatible, breaking
                     ),
                     Some(Update::Compatible(compatible)) => {
-                        format!("{} can update to `{}`.", image, compatible)
+                        format!("{} has update to `{}`.", image, compatible)
                     }
                     Some(Update::Breaking(breaking)) => {
                         format!("{} has breaking update to `{}`.", image, breaking)
