@@ -224,7 +224,6 @@ fn display_updates(
                     ),
                 })
                 .unwrap_or_else(|error| {
-                    dbg!(&error);
                     format!(
                         "Failed to check image {}: {:#}",
                         image.name,
