@@ -150,7 +150,7 @@ impl VersionExtractor {
             .filter(move |candidate| self.matches(candidate.tag()))
     }
 
-    pub fn extract<'a, T>(
+    pub fn extract_iter<'a, T>(
         &'a self,
         candidates: impl IntoIterator<Item = T> + 'a,
     ) -> impl Iterator<Item = (Version, T)> + 'a
@@ -167,7 +167,7 @@ impl VersionExtractor {
     where
         T: Tagged,
     {
-        self.extract(candidates).max_by(|a, b| a.0.cmp(&b.0))
+        self.extract_iter(candidates).max_by(|a, b| a.0.cmp(&b.0))
     }
 }
 
