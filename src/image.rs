@@ -79,7 +79,7 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "`{}` is not a valid image name of the form `<image>` or `<user>/<image>`.",
+            "`{}` is not a valid image name of the form `<image>` or `<user>/<image>`",
             self.invalid
         )
     }

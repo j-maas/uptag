@@ -132,7 +132,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
     let compose_file = fs::File::open(&opts.file)
         .with_context(|| format!("Failed to read file `{}`", opts.file.display()))?;
     let compose: DockerCompose =
-        serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file.")?;
+        serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
     let amount = 25;

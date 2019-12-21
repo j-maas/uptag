@@ -125,7 +125,7 @@ impl VersionExtractor {
                                 .parse::<VersionPart>()
                                 .unwrap_or_else(|_| {
                                     panic!(
-                                        "The pattern {} captured a non-numeric version part in tag `{}`.",
+                                        "The pattern {} captured a non-numeric version part in tag `{}`",
                                         self.regex,
                                         tag
                                     )
