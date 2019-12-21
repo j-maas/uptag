@@ -151,6 +151,7 @@ pub enum CheckError<T>
 where
     // The Debug trait is required here, because the Debug derive incorrectly infers trait bounds on `T`.
     // For details, see https://github.com/rust-lang/rust/issues/26925
+    // Including this bound is the easiest workaround, since TagFetchers can easily derive Debug.
     T: TagFetcher + std::fmt::Debug,
     T::Error: 'static,
 {
