@@ -23,7 +23,7 @@ use regex::Regex;
 /// Detect only proper SemVer, without any prefix or suffix:
 ///
 /// ```rust
-/// # extern crate updock; use updock::VersionExtractor;
+/// # extern crate updock; use updock::version_extractor::VersionExtractor;
 /// let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
 /// assert!(extractor.matches("1.2.3"));
 /// assert!(!extractor.matches("1.2.3-debian"));
@@ -32,7 +32,7 @@ use regex::Regex;
 /// Detect a sequential version after a prefix:
 ///
 /// ```rust
-/// # extern crate updock; use updock::VersionExtractor;
+/// # extern crate updock; use updock::version_extractor::VersionExtractor;
 /// let extractor = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
 /// assert!(extractor.matches("debian-r24"));
 /// assert!(!extractor.matches("debian-r24-alpha"));

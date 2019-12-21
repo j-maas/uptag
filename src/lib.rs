@@ -1,15 +1,15 @@
-mod image;
-mod matches;
-mod tag_fetcher;
-mod version_extractor;
+pub mod image;
+pub mod matches;
+pub mod tag_fetcher;
+pub mod version_extractor;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub use image::{Image, ImageName};
-pub use matches::Matches;
-pub use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
-pub use version_extractor::{Version, VersionExtractor};
+use image::{Image, ImageName};
+use matches::Matches;
+use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use version_extractor::{Version, VersionExtractor};
 
 pub struct Updock<T>
 where

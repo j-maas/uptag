@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use structopt::StructOpt;
 
-use updock::{
-    CheckError, DockerHubTagFetcher, Image, ImageName, PatternInfo, TagFetcher, Update, Updock,
-    VersionExtractor,
-};
+use updock::image::{Image, ImageName};
+use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use updock::version_extractor::VersionExtractor;
+use updock::{CheckError, PatternInfo, Update, Updock};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
