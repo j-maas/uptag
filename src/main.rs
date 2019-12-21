@@ -120,7 +120,7 @@ fn check(opts: CheckOpts) -> Result<()> {
 
 #[derive(Debug, Deserialize)]
 struct DockerCompose {
-    services: IndexMap<String, Service>, // IndeMap preserves order.
+    services: IndexMap<String, Service>, // IndexMap preserves order.
 }
 
 #[derive(Debug, Serialize, Deserialize)]
