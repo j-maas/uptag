@@ -1,3 +1,4 @@
+pub mod docker_compose;
 pub mod image;
 pub mod matches;
 pub mod tag_fetcher;

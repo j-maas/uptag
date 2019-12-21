@@ -7,10 +7,11 @@ use anyhow::{Context, Result};
 use env_logger;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use serde_json;
+use serde_yaml;
 use structopt::StructOpt;
 
+use updock::docker_compose::DockerCompose;
 use updock::image::{Image, ImageName};
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
@@ -116,16 +117,6 @@ fn check(opts: CheckOpts) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[derive(Debug, Deserialize)]
-struct DockerCompose {
-    services: IndexMap<String, Service>, // IndexMap preserves order.
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Service {
-    build: PathBuf,
 }
 
 fn check_compose(opts: CheckComposeOpts) -> Result<()> {
