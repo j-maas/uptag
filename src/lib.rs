@@ -195,25 +195,9 @@ where
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
 {
-    successes: S,
-    failures: F,
+    pub successes: S,
+    pub failures: F,
     error: PhantomData<T>,
-}
-
-impl<T, S, F> DockerfileReport<T, S, F>
-where
-    S: IntoIterator<Item = (Image, (Option<Update>, PatternInfo))>,
-    F: IntoIterator<Item = (Image, CheckError<T>)>,
-    T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
-{
-    pub fn successes(&self) -> &S {
-        &self.successes
-    }
-
-    pub fn failures(&self) -> &F {
-        &self.failures
-    }
 }
 
 impl<T>

@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use env_logger;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use serde_json;
+use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
 
@@ -15,7 +15,7 @@ use updock::docker_compose::DockerCompose;
 use updock::image::{Image, ImageName};
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
-use updock::{CheckError, PatternInfo, Update, Updock};
+use updock::{CheckError, DockerfileReport, PatternInfo, Update, Updock};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -98,19 +98,24 @@ fn check(opts: CheckOpts) -> Result<()> {
     let updates = updock.check_input(&input, amount);
 
     if opts.json {
-        let map = updates
-            .map(|(image_name, update_result)| {
-                (
-                    image_name.to_string(),
-                    update_result
-                        .map_err(|error| format!("{:#}", anyhow::Error::new(error)))
-                        .map(|(maybe_update, _)| maybe_update),
-                )
-            })
-            .collect::<IndexMap<_, _>>(); // IndexMap preserves order.
+        let report = DockerfileReport::from(updates);
+        let successes = report
+            .successes
+            .into_iter()
+            .map(|(image, (update, _))| (image, update))
+            .collect::<Vec<_>>();
+        let failures = report
+            .failures
+            .into_iter()
+            .map(|(image, error)| (image, format!("{:#}", anyhow::Error::new(error))))
+            .collect::<Vec<_>>();
         println!(
             "{}",
-            serde_json::to_string_pretty(&map).context("Failed to serialize result.")?
+            serde_json::to_string_pretty(&json!({
+                "successes": successes,
+                "failures": failures
+            }))
+            .context("Failed to serialize result.")?
         )
     } else {
         println!("{}", display_updates(updates, amount))

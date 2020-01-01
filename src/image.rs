@@ -2,6 +2,7 @@ use std::fmt;
 
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::{Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Image {
@@ -14,6 +15,15 @@ pub type Tag = String;
 impl fmt::Display for Image {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.name, self.tag)
+    }
+}
+
+impl Serialize for Image {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
