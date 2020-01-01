@@ -171,9 +171,10 @@ where
     },
 }
 
+pub type DockerfileResult<T> = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>);
+
 // Trait alias
-pub trait DockerfileResults<T>:
-    Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)>
+pub trait DockerfileResults<T>: Iterator<Item = DockerfileResult<T>>
 where
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
@@ -182,7 +183,7 @@ where
 
 impl<A, T> DockerfileResults<T> for A
 where
-    A: Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)>,
+    A: Iterator<Item = DockerfileResult<T>>,
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
 {

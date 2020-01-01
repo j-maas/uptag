@@ -11,10 +11,10 @@ use serde_yaml;
 use structopt::StructOpt;
 
 use updock::docker_compose::DockerCompose;
-use updock::image::{Image, ImageName};
+use updock::image::ImageName;
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
-use updock::{CheckError, DockerfileReport, PatternInfo, Update, Updock};
+use updock::{DockerfileReport, DockerfileResult, Update, Updock};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -139,12 +139,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
     let amount = 25;
     let updock = Updock::default();
     let services = compose.services.into_iter().map(|(service_name, service)| {
-        (service_name, {
-            let path = compose_dir.join(service.build).join("Dockerfile");
-            fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read file `{}`", path.display()))
-                .map(|input| updock.check_input(&input, amount).collect::<Vec<_>>())
-        })
+        let path = compose_dir.join(service.build).join("Dockerfile");
+        let updates_result = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read file `{}`", path.display()))
+            .map(|input| updock.check_input(&input, amount).collect::<Vec<_>>());
+
+        (service_name, updates_result)
     });
 
     if opts.check_opts.json {
@@ -198,10 +198,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
 }
 
 fn display_update(
-    (image, update_result): (
-        Image,
-        Result<(Option<Update>, PatternInfo), CheckError<DockerHubTagFetcher>>,
-    ),
+    (image, update_result): DockerfileResult<DockerHubTagFetcher>,
     amount: usize,
 ) -> Result<String, String> {
     update_result
