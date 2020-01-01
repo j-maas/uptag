@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use env_logger;
 use indexmap::IndexMap;
-use itertools::Itertools;
 use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
@@ -109,6 +108,7 @@ fn check(opts: CheckOpts) -> Result<()> {
             .into_iter()
             .map(|(image, error)| (image, format!("{:#}", anyhow::Error::new(error))))
             .collect::<Vec<_>>();
+
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
@@ -118,7 +118,12 @@ fn check(opts: CheckOpts) -> Result<()> {
             .context("Failed to serialize result.")?
         )
     } else {
-        println!("{}", display_updates(updates, amount))
+        for update_result in updates {
+            match display_update(update_result, amount) {
+                Ok(output) => println!("{}", output),
+                Err(failure) => eprintln!("{}", failure),
+            }
+        }
     }
 
     Ok(())
@@ -173,59 +178,53 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
         )
     } else {
         for (service, result) in services {
-            let updates_output = match result {
+            match result {
                 Ok(updates) => {
-                    let updates_output = display_updates(updates, amount);
-                    updates_output.to_string()
+                    println!("Service `{}`:", service);
+                    for update_result in updates {
+                        match display_update(update_result, amount) {
+                            Ok(output) => println!("{}", output),
+                            Err(failure) => eprintln!("{}", failure),
+                        }
+                    }
                 }
-                Err(error) => format!("{:#}", error),
+                Err(error) => eprintln!("Failed to check service `{}`: {:#}", service, error),
             };
-            println!("Service {}:\n{}\n", service, updates_output)
+            println!();
         }
     }
 
     Ok(())
 }
 
-fn display_updates(
-    updates: impl IntoIterator<
-        Item = (
-            Image,
-            Result<(Option<Update>, PatternInfo), CheckError<DockerHubTagFetcher>>,
-        ),
-    >,
+fn display_update(
+    (image, update_result): (
+        Image,
+        Result<(Option<Update>, PatternInfo), CheckError<DockerHubTagFetcher>>,
+    ),
     amount: usize,
-) -> String {
-    updates
-        .into_iter()
-        .map(|(image, update_result)| {
-            update_result
-                .map(|(update, pattern_info)| match update {
-                    Some(Update::Both {
-                        compatible,
-                        breaking,
-                    }) => format!(
-                        "{} has update to `{}`, and has breaking update to `{}`.",
-                        image, compatible, breaking
-                    ),
-                    Some(Update::Compatible(compatible)) => {
-                        format!("{} has update to `{}`.", image, compatible)
-                    }
-                    Some(Update::Breaking(breaking)) => {
-                        format!("{} has breaking update to `{}`.", image, breaking)
-                    }
-                    None => format!(
-                        "{} has no update matching `{}` in the latest {} tags.",
-                        image, pattern_info.extractor, amount
-                    ),
-                })
-                .unwrap_or_else(|error| {
-                    format!(
-                        "Failed to check image {}: {:#}",
-                        image.name,
-                        anyhow::Error::new(error)
-                    )
-                })
+) -> Result<String, String> {
+    update_result
+        .map_err(|error| format!("Failed to check `{}`: {:#}", image, error))
+        .map(|(maybe_update, pattern_info)| match maybe_update {
+            None => format!(
+                "`{}` has no update matching `{}` in the latest {} tags.",
+                image, pattern_info.extractor, amount
+            ),
+            Some(Update::Both {
+                compatible,
+                breaking,
+            }) => format!(
+                "`{}` has compatible update to `{}:{}` and breaking update to `{}:{}`.",
+                image, image.name, compatible, image.name, breaking
+            ),
+            Some(Update::Breaking(breaking)) => format!(
+                "`{}` has breaking update to `{}:{}`.",
+                image, image.name, breaking
+            ),
+            Some(Update::Compatible(compatible)) => format!(
+                "`{}` has compatible update to `{}:{}`.",
+                image, image.name, compatible
+            ),
         })
-        .join("\n")
 }
