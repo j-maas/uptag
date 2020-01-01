@@ -45,10 +45,10 @@ where
             let result = Self::extract_check_info(
                 &image.tag,
                 &matches.pattern().map(|m| m.as_str()),
-                matches.breaking_degree(),
+                matches.breaking_degree().unwrap_or(0),
             )
             .and_then(|(current_version, pattern_info)| {
-                self.check_update(&image.name, &current_version, &pattern_info, amount)
+                self.find_update(&image.name, &current_version, &pattern_info, amount)
                     .map_err(CheckError::FailedFetch)
                     .map(|maybe_update| (maybe_update, pattern_info))
             });
@@ -83,7 +83,7 @@ where
         ))
     }
 
-    pub fn check_update(
+    pub fn find_update(
         &self,
         image_name: &ImageName,
         current_version: &Version,
@@ -228,7 +228,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Compatible("14.05".to_string())));
     }
@@ -254,7 +254,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Breaking("15.02".to_string())));
     }
@@ -281,7 +281,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -312,7 +312,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.check_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, None);
     }

@@ -59,10 +59,8 @@ impl<'t> Matches<'t> {
         self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
     }
 
-    pub fn breaking_degree(&self) -> usize {
-        self.breaking_degree
-            .map(|m| m.as_str().parse().unwrap())
-            .unwrap_or(0)
+    pub fn breaking_degree(&self) -> Option<usize> {
+        self.breaking_degree.map(|m| m.as_str().parse().unwrap())
     }
 }
 
@@ -81,7 +79,7 @@ mod test {
         image_name: ImageName,
         image_tag: &'static str,
         extractor: Option<Result<VersionExtractor, regex::Error>>,
-        breaking_degree: usize,
+        breaking_degree: Option<usize>,
     }
 
     impl<'t> PartialEq<Matches<'t>> for ExpectedMatches {
@@ -131,7 +129,7 @@ mod test {
                 },
                 image_tag: "12.3.2-ce.0",
                 extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$")),
-                breaking_degree: 1,
+                breaking_degree: Some(1),
             })
         );
     }
@@ -147,7 +145,7 @@ mod test {
                 },
                 image_tag: "14.04",
                 extractor: None,
-                breaking_degree: 0,
+                breaking_degree: None,
             })
         )
     }
