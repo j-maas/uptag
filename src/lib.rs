@@ -4,8 +4,6 @@ pub mod matches;
 pub mod tag_fetcher;
 pub mod version_extractor;
 
-use std::marker::PhantomData;
-
 use itertools::{Either, Itertools};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -189,20 +187,16 @@ where
 {
 }
 
-pub struct DockerfileReport<T, S, F>
+pub struct DockerfileReport<T>
 where
-    S: IntoIterator<Item = (Image, (Option<Update>, PatternInfo))>,
-    F: IntoIterator<Item = (Image, CheckError<T>)>,
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
 {
-    pub successes: S,
-    pub failures: F,
-    error: PhantomData<T>,
+    pub successes: Vec<(Image, (Option<Update>, PatternInfo))>,
+    pub failures: Vec<(Image, CheckError<T>)>,
 }
 
-impl<T>
-    DockerfileReport<T, Vec<(Image, (Option<Update>, PatternInfo))>, Vec<(Image, CheckError<T>)>>
+impl<T> DockerfileReport<T>
 where
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
@@ -217,7 +211,6 @@ where
         DockerfileReport {
             successes,
             failures,
-            error: PhantomData,
         }
     }
 }

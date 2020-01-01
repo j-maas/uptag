@@ -10,7 +10,7 @@ use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
 
-use updock::docker_compose::DockerCompose;
+use updock::docker_compose::{DockerCompose, DockerComposeReport};
 use updock::image::ImageName;
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
@@ -101,13 +101,18 @@ fn check(opts: CheckOpts) -> Result<()> {
         let successes = report
             .successes
             .into_iter()
-            .map(|(image, (update, _))| (image, update))
-            .collect::<Vec<_>>();
+            .map(|(image, (update, _))| (image.to_string(), update))
+            .collect::<IndexMap<_, _>>();
         let failures = report
             .failures
             .into_iter()
-            .map(|(image, error)| (image, format!("{:#}", anyhow::Error::new(error))))
-            .collect::<Vec<_>>();
+            .map(|(image, error)| {
+                (
+                    image.to_string(),
+                    format!("{:#}", anyhow::Error::new(error)),
+                )
+            })
+            .collect::<IndexMap<_, _>>();
 
         println!(
             "{}",
@@ -148,7 +153,23 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
     });
 
     if opts.check_opts.json {
-        let map = services
+        let report = DockerComposeReport::from(services);
+        let successes = report
+            .successes
+            .into_iter()
+            .map(|(service, updates)| {
+                (
+                    service,
+                    updates
+                        .into_iter()
+                        .map(|(image, (update, _))| (image.to_string(), update))
+                        .collect::<IndexMap<_, _>>(),
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+        let failures = report
+            .failures
+            .into_iter()
             .map(|(service, result)| {
                 (
                     service,
@@ -157,24 +178,20 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
                         .map(|updates| {
                             updates
                                 .into_iter()
-                                .map(|(image_name, updates_result)| {
-                                    (
-                                        image_name.to_string(),
-                                        updates_result
-                                            .map_err(|error| {
-                                                format!("{:#}", anyhow::Error::new(error))
-                                            })
-                                            .map(|(maybe_update, _)| maybe_update),
-                                    )
-                                })
-                                .collect()
+                                .map(|(_, error)| format!("{:#}", error))
+                                .collect::<Vec<_>>()
                         }),
                 )
             })
-            .collect::<IndexMap<_, Result<IndexMap<_, _>, String>>>();
+            .collect::<IndexMap<_, _>>();
+
         println!(
             "{}",
-            serde_json::to_string_pretty(&map).context("Failed to serialize result")?
+            serde_json::to_string_pretty(&json!({
+                "successes": successes,
+                "failures": failures
+            }))
+            .context("Failed to serialize result")?
         )
     } else {
         for (service, result) in services {
