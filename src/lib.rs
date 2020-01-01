@@ -4,6 +4,9 @@ pub mod matches;
 pub mod tag_fetcher;
 pub mod version_extractor;
 
+use std::marker::PhantomData;
+
+use itertools::{Either, Itertools};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -38,8 +41,7 @@ where
         &'a self,
         input: &'a str,
         amount: usize,
-    ) -> impl Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)> + 'a
-    {
+    ) -> impl DockerfileResults<T> + 'a {
         Matches::iter(input).map(move |matches| {
             let image = matches.image();
             let result = Self::extract_check_info(
@@ -117,7 +119,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PatternInfo {
     pub extractor: VersionExtractor,
     pub breaking_degree: usize,
@@ -125,7 +127,7 @@ pub struct PatternInfo {
 
 type Tag = String;
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub enum Update {
     Compatible(Tag),
     Breaking(Tag),
@@ -167,6 +169,72 @@ where
         #[source]
         source: regex::Error,
     },
+}
+
+// Trait alias
+pub trait DockerfileResults<T>:
+    Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)>
+where
+    T: std::fmt::Debug + TagFetcher,
+    T::Error: 'static,
+{
+}
+
+impl<A, T> DockerfileResults<T> for A
+where
+    A: Iterator<Item = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>)>,
+    T: std::fmt::Debug + TagFetcher,
+    T::Error: 'static,
+{
+}
+
+pub struct DockerfileReport<T, S, F>
+where
+    S: IntoIterator<Item = (Image, (Option<Update>, PatternInfo))>,
+    F: IntoIterator<Item = (Image, CheckError<T>)>,
+    T: std::fmt::Debug + TagFetcher,
+    T::Error: 'static,
+{
+    successes: S,
+    failures: F,
+    error: PhantomData<T>,
+}
+
+impl<T, S, F> DockerfileReport<T, S, F>
+where
+    S: IntoIterator<Item = (Image, (Option<Update>, PatternInfo))>,
+    F: IntoIterator<Item = (Image, CheckError<T>)>,
+    T: std::fmt::Debug + TagFetcher,
+    T::Error: 'static,
+{
+    pub fn successes(&self) -> &S {
+        &self.successes
+    }
+
+    pub fn failures(&self) -> &F {
+        &self.failures
+    }
+}
+
+impl<T>
+    DockerfileReport<T, Vec<(Image, (Option<Update>, PatternInfo))>, Vec<(Image, CheckError<T>)>>
+where
+    T: std::fmt::Debug + TagFetcher,
+    T::Error: 'static,
+{
+    pub fn from(results: impl DockerfileResults<T>) -> Self {
+        let (successes, failures): (Vec<_>, Vec<_>) =
+            results.partition_map(|(image, result)| match result {
+                Ok(info) => Either::Left((image, info)),
+                Err(error) => Either::Right((image, error)),
+            });
+
+        DockerfileReport {
+            successes,
+            failures,
+            error: PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -450,5 +518,57 @@ mod test {
             .collect::<Vec<_>>();
 
         assert_eq!(actual_updates, vec![(image, None)]);
+    }
+
+    type TestDockerfileResults = Vec<(
+        Image,
+        Result<(Option<Update>, PatternInfo), CheckError<ArrayFetcher>>,
+    )>;
+
+    #[test]
+    fn generates_dockerfile_report() {
+        let success_image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let success_update = (
+            Some(Update::Compatible("14.05".to_string())),
+            PatternInfo {
+                extractor: VersionExtractor::parse("").unwrap(),
+                breaking_degree: 1,
+            },
+        );
+
+        let fail_image = Image {
+            name: ImageName::new(None, "error".to_string()),
+            tag: "1".to_string(),
+        };
+        let fail_error = CheckError::UnspecifiedPattern;
+
+        let input: TestDockerfileResults = vec![
+            (success_image.clone(), Ok(success_update.clone())),
+            (fail_image.clone(), Err(fail_error)),
+        ];
+
+        let result = DockerfileReport::from(input.into_iter());
+        assert_eq!(
+            result
+                .successes
+                .into_iter()
+                .map(|(image, (update, _))| (image, update))
+                .collect::<Vec<_>>(),
+            vec![(success_image, success_update)]
+                .into_iter()
+                .map(|(image, (update, _))| (image, update))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            result
+                .failures
+                .into_iter()
+                .map(|(image, _)| image)
+                .collect::<Vec<_>>(),
+            vec![fail_image]
+        );
     }
 }
