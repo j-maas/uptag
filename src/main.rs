@@ -52,14 +52,49 @@ fn main() -> Result<()> {
     let opts = Opts::from_args();
 
     use Opts::*;
-    match opts {
+    let result = match opts {
         Fetch(opts) => fetch(opts),
         Check(opts) => check(opts),
         CheckCompose(opts) => check_compose(opts),
+    };
+
+    match result {
+        Ok(code) => code.exit(),
+        Err(error) => {
+            eprintln!("{:#}", error);
+            EXIT_ERROR.exit();
+        }
     }
 }
 
-fn fetch(opts: FetchOpts) -> Result<()> {
+struct ExitCode(i32);
+
+const EXIT_OK: ExitCode = ExitCode(0);
+const EXIT_NO_UPDATE: ExitCode = ExitCode(0);
+const EXIT_COMPATIBLE_UPDATE: ExitCode = ExitCode(1);
+const EXIT_BREAKING_UPDATE: ExitCode = ExitCode(2);
+const EXIT_ERROR: ExitCode = ExitCode(10);
+
+impl ExitCode {
+    fn from(maybe_update: &Option<Update>) -> Self {
+        match maybe_update {
+            None => EXIT_NO_UPDATE,
+            Some(Update::Compatible(_)) => EXIT_COMPATIBLE_UPDATE,
+            Some(Update::Breaking(_)) => EXIT_BREAKING_UPDATE,
+            Some(Update::Both { .. }) => EXIT_BREAKING_UPDATE,
+        }
+    }
+
+    fn merge(&mut self, other: &ExitCode) {
+        self.0 = std::cmp::max(self.0, other.0)
+    }
+
+    fn exit(&self) -> ! {
+        std::process::exit(self.0)
+    }
+}
+
+fn fetch(opts: FetchOpts) -> Result<ExitCode> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
         .fetch(&opts.image, opts.amount)
@@ -81,10 +116,10 @@ fn fetch(opts: FetchOpts) -> Result<()> {
 
     println!("{}", result.join("\n"));
 
-    Ok(())
+    Ok(EXIT_OK)
 }
 
-fn check(opts: CheckOpts) -> Result<()> {
+fn check(opts: CheckOpts) -> Result<ExitCode> {
     let stdin = io::stdin();
     let mut input = String::new();
     stdin
@@ -96,12 +131,17 @@ fn check(opts: CheckOpts) -> Result<()> {
     let updock = Updock::default();
     let updates = updock.check_input(&input, amount);
 
+    let mut exit_code = EXIT_NO_UPDATE;
+
     if opts.json {
         let report = DockerfileReport::from(updates);
         let successes = report
             .successes
             .into_iter()
-            .map(|(image, (update, _))| (image.to_string(), update))
+            .map(|(image, (update, _))| {
+                exit_code.merge(&ExitCode::from(&update));
+                (image.to_string(), update)
+            })
             .collect::<IndexMap<_, _>>();
         let failures = report
             .failures
@@ -113,6 +153,9 @@ fn check(opts: CheckOpts) -> Result<()> {
                 )
             })
             .collect::<IndexMap<_, _>>();
+        if !failures.is_empty() {
+            exit_code.merge(&EXIT_ERROR);
+        }
 
         println!(
             "{}",
@@ -121,20 +164,22 @@ fn check(opts: CheckOpts) -> Result<()> {
                 "failures": failures
             }))
             .context("Failed to serialize result.")?
-        )
+        );
     } else {
         for update_result in updates {
-            match display_update(update_result, amount) {
+            let (result, new_exit_code) = display_update(update_result, amount);
+            exit_code.merge(&new_exit_code);
+            match result {
                 Ok(output) => println!("{}", output),
                 Err(failure) => eprintln!("{}", failure),
             }
         }
     }
 
-    Ok(())
+    Ok(exit_code)
 }
 
-fn check_compose(opts: CheckComposeOpts) -> Result<()> {
+fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let compose_file = fs::File::open(&opts.file)
         .with_context(|| format!("Failed to read file `{}`", opts.file.display()))?;
     let compose: DockerCompose =
@@ -151,6 +196,8 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
 
         (service_name, updates_result)
     });
+
+    let mut exit_code = EXIT_NO_UPDATE;
 
     if opts.check_opts.json {
         let report = DockerComposeReport::from(services);
@@ -184,6 +231,9 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
                 )
             })
             .collect::<IndexMap<_, _>>();
+        if !failures.is_empty() {
+            exit_code.merge(&EXIT_ERROR);
+        }
 
         println!(
             "{}",
@@ -192,14 +242,16 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
                 "failures": failures
             }))
             .context("Failed to serialize result")?
-        )
+        );
     } else {
         for (service, result) in services {
             match result {
                 Ok(updates) => {
                     println!("Service `{}`:", service);
                     for update_result in updates {
-                        match display_update(update_result, amount) {
+                        let (result, new_exit_code) = display_update(update_result, amount);
+                        exit_code.merge(&new_exit_code);
+                        match result {
                             Ok(output) => println!("{}", output),
                             Err(failure) => eprintln!("{}", failure),
                         }
@@ -211,34 +263,44 @@ fn check_compose(opts: CheckComposeOpts) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(exit_code)
 }
 
 fn display_update(
     (image, update_result): DockerfileResult<DockerHubTagFetcher>,
     amount: usize,
-) -> Result<String, String> {
-    update_result
-        .map_err(|error| format!("Failed to check `{}`: {:#}", image, error))
-        .map(|(maybe_update, pattern_info)| match maybe_update {
-            None => format!(
-                "`{}` has no update matching `{}` in the latest {} tags.",
-                image, pattern_info.extractor, amount
-            ),
-            Some(Update::Both {
-                compatible,
-                breaking,
-            }) => format!(
-                "`{}` has compatible update to `{}:{}` and breaking update to `{}:{}`.",
-                image, image.name, compatible, image.name, breaking
-            ),
-            Some(Update::Breaking(breaking)) => format!(
-                "`{}` has breaking update to `{}:{}`.",
-                image, image.name, breaking
-            ),
-            Some(Update::Compatible(compatible)) => format!(
-                "`{}` has compatible update to `{}:{}`.",
-                image, image.name, compatible
-            ),
+) -> (Result<String, String>, ExitCode) {
+    let mut exit_code = EXIT_NO_UPDATE;
+    let result = update_result
+        .map_err(|error| {
+            exit_code.merge(&EXIT_ERROR);
+            format!("Failed to check `{}`: {:#}", image, error)
         })
+        .map(|(maybe_update, pattern_info)| {
+            exit_code.merge(&ExitCode::from(&maybe_update));
+
+            match maybe_update {
+                None => format!(
+                    "`{}` has no update matching `{}` in the latest {} tags.",
+                    image, pattern_info.extractor, amount
+                ),
+                Some(Update::Both {
+                    compatible,
+                    breaking,
+                }) => format!(
+                    "`{}` has compatible update to `{}:{}` and breaking update to `{}:{}`.",
+                    image, image.name, compatible, image.name, breaking
+                ),
+                Some(Update::Breaking(breaking)) => format!(
+                    "`{}` has breaking update to `{}:{}`.",
+                    image, image.name, breaking
+                ),
+                Some(Update::Compatible(compatible)) => format!(
+                    "`{}` has compatible update to `{}:{}`.",
+                    image, image.name, compatible
+                ),
+            }
+        });
+
+    (result, exit_code)
 }
