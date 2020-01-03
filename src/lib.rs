@@ -213,6 +213,43 @@ where
             failures,
         }
     }
+
+    pub fn no_updates(&self) -> impl Iterator<Item = (&Image, &PatternInfo)> {
+        self.successes
+            .iter()
+            .filter_map(|(image, (maybe_update, pattern_info))| match maybe_update {
+                None => Some((image, pattern_info)),
+                _ => None,
+            })
+    }
+
+    pub fn compatible_updates(&self) -> impl Iterator<Item = (&Image, &Tag, &PatternInfo)> {
+        self.successes
+            .iter()
+            .filter_map(|(image, (maybe_update, pattern_info))| {
+                let maybe_tag = match maybe_update {
+                    Some(Update::Compatible(tag)) => Some(tag),
+                    Some(Update::Both { compatible, .. }) => Some(compatible),
+                    _ => None,
+                };
+
+                maybe_tag.map(|tag| (image, tag, pattern_info))
+            })
+    }
+
+    pub fn breaking_updates(&self) -> impl Iterator<Item = (&Image, &Tag, &PatternInfo)> {
+        self.successes
+            .iter()
+            .filter_map(|(image, (maybe_update, pattern_info))| {
+                let maybe_tag = match maybe_update {
+                    Some(Update::Breaking(tag)) => Some(tag),
+                    Some(Update::Both { breaking, .. }) => Some(breaking),
+                    _ => None,
+                };
+
+                maybe_tag.map(|tag| (image, tag, pattern_info))
+            })
+    }
 }
 
 #[cfg(test)]

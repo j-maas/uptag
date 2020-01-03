@@ -135,14 +135,20 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
 
     if opts.json {
         let report = DockerfileReport::from(updates);
-        let successes = report
-            .successes
-            .into_iter()
-            .map(|(image, (update, _))| {
-                exit_code.merge(&ExitCode::from(&update));
-                (image.to_string(), update)
-            })
+
+        let no_updates = report
+            .no_updates()
+            .map(|(image, _)| image.to_string())
+            .collect::<Vec<_>>();
+        let compatible_updates = report
+            .compatible_updates()
+            .map(|(image, tag, _)| (image.to_string(), tag.clone()))
             .collect::<IndexMap<_, _>>();
+        let breaking_updates = report
+            .breaking_updates()
+            .map(|(image, tag, _)| (image.to_string(), tag.clone()))
+            .collect::<IndexMap<_, _>>();
+
         let failures = report
             .failures
             .into_iter()
@@ -153,26 +159,76 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
                 )
             })
             .collect::<IndexMap<_, _>>();
+
+        if !compatible_updates.is_empty() {
+            exit_code = EXIT_COMPATIBLE_UPDATE;
+        }
+        if !breaking_updates.is_empty() {
+            exit_code = EXIT_BREAKING_UPDATE;
+        }
         if !failures.is_empty() {
-            exit_code.merge(&EXIT_ERROR);
+            exit_code = EXIT_ERROR;
         }
 
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "successes": successes,
-                "failures": failures
+                "failures": failures,
+                "breaking_updates": breaking_updates,
+                "compatible_updates": compatible_updates,
+                "no_updates": no_updates
             }))
             .context("Failed to serialize result.")?
         );
     } else {
-        for update_result in updates {
-            let (result, new_exit_code) = display_update(update_result, amount);
-            exit_code.merge(&new_exit_code);
-            match result {
-                Ok(output) => println!("{}", output),
-                Err(failure) => eprintln!("{}", failure),
-            }
+        let report = DockerfileReport::from(updates);
+
+        let breaking_updates = report
+            .breaking_updates()
+            .map(|(image, tag, _)| format!("{} -!> {}:{}", image, image.name, tag))
+            .collect::<Vec<_>>();
+        let compatible_updates = report
+            .compatible_updates()
+            .map(|(image, tag, _)| format!("{} -> {}:{}", image, image.name, tag))
+            .collect::<Vec<_>>();
+        let no_updates = report
+            .no_updates()
+            .map(|(image, _)| image.to_string())
+            .collect::<Vec<_>>();
+
+        let failures = report
+            .failures
+            .into_iter()
+            .map(|(image, error)| format!("`{}`: {:#}", image, anyhow::Error::new(error)))
+            .collect::<Vec<_>>();
+
+        if !failures.is_empty() {
+            exit_code = EXIT_ERROR;
+            eprintln!("{} failures:\n{}\n", failures.len(), failures.join("\n"));
+        }
+        if !breaking_updates.is_empty() {
+            exit_code = EXIT_BREAKING_UPDATE;
+            println!(
+                "{} breaking updates:\n{}\n",
+                breaking_updates.len(),
+                breaking_updates.join("\n")
+            );
+        }
+        if !compatible_updates.is_empty() {
+            exit_code = EXIT_COMPATIBLE_UPDATE;
+            println!(
+                "{} compatible updates:\n{}\n",
+                compatible_updates.len(),
+                compatible_updates.join("\n")
+            );
+        }
+        if !no_updates.is_empty() {
+            println!(
+                "{} have no updates in the latest {} tags:\n{}\n",
+                no_updates.len(),
+                amount,
+                no_updates.join("\n")
+            )
         }
     }
 
