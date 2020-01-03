@@ -142,11 +142,11 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
             .collect::<Vec<_>>();
         let compatible_updates = report
             .compatible_updates()
-            .map(|(image, tag, _)| (image.to_string(), tag.clone()))
+            .map(|(image, tag, _)| (image.to_string(), format!("{}:{}", image.name, tag)))
             .collect::<IndexMap<_, _>>();
         let breaking_updates = report
             .breaking_updates()
-            .map(|(image, tag, _)| (image.to_string(), tag.clone()))
+            .map(|(image, tag, _)| (image.to_string(), format!("{}:{}", image.name, tag)))
             .collect::<IndexMap<_, _>>();
 
         let failures = report
@@ -203,28 +203,32 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
             .collect::<Vec<_>>();
 
         if !failures.is_empty() {
-            exit_code = EXIT_ERROR;
-            eprintln!("{} failures:\n{}\n", failures.len(), failures.join("\n"));
+            exit_code.merge(&EXIT_ERROR);
+            eprintln!(
+                "{} with failure:\n{}\n",
+                failures.len(),
+                failures.join("\n")
+            );
         }
         if !breaking_updates.is_empty() {
-            exit_code = EXIT_BREAKING_UPDATE;
+            exit_code.merge(&EXIT_BREAKING_UPDATE);
             println!(
-                "{} breaking updates:\n{}\n",
+                "{} with breaking update:\n{}\n",
                 breaking_updates.len(),
                 breaking_updates.join("\n")
             );
         }
         if !compatible_updates.is_empty() {
-            exit_code = EXIT_COMPATIBLE_UPDATE;
+            exit_code.merge(&EXIT_COMPATIBLE_UPDATE);
             println!(
-                "{} compatible updates:\n{}\n",
+                "{} with compatible update:\n{}\n",
                 compatible_updates.len(),
                 compatible_updates.join("\n")
             );
         }
         if !no_updates.is_empty() {
             println!(
-                "{} have no updates in the latest {} tags:\n{}\n",
+                "{} with no updates in the latest {} tags:\n{}\n",
                 no_updates.len(),
                 amount,
                 no_updates.join("\n")
