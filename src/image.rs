@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Image {
     pub name: ImageName,
     pub tag: Tag,
@@ -27,7 +27,7 @@ impl Serialize for Image {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ImageName {
     Official { image: String },
     User { user: String, image: String },

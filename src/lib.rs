@@ -4,6 +4,7 @@ pub mod matches;
 pub mod tag_fetcher;
 pub mod version_extractor;
 
+use indexmap::IndexMap;
 use itertools::{Either, Itertools};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -187,13 +188,16 @@ where
 {
 }
 
+#[derive(Debug)]
 pub struct DockerfileReport<T>
 where
     T: std::fmt::Debug + TagFetcher,
     T::Error: 'static,
 {
-    pub successes: Vec<(Image, (Option<Update>, PatternInfo))>,
-    pub failures: Vec<(Image, CheckError<T>)>,
+    pub no_updates: Vec<Image>,
+    pub compatible_updates: IndexMap<Image, Tag>,
+    pub breaking_updates: IndexMap<Image, Tag>,
+    pub failures: IndexMap<Image, CheckError<T>>,
 }
 
 impl<T> DockerfileReport<T>
@@ -202,53 +206,96 @@ where
     T::Error: 'static,
 {
     pub fn from(results: impl DockerfileResults<T>) -> Self {
-        let (successes, failures): (Vec<_>, Vec<_>) =
+        let (successes, failures): (Vec<_>, IndexMap<_, _>) =
             results.partition_map(|(image, result)| match result {
                 Ok(info) => Either::Left((image, info)),
                 Err(error) => Either::Right((image, error)),
             });
 
+        let mut no_updates = Vec::new();
+        let mut compatible_updates = IndexMap::new();
+        let mut breaking_updates = IndexMap::new();
+
+        for (image, (maybe_update, _)) in successes {
+            match maybe_update {
+                None => no_updates.push(image),
+                Some(Update::Compatible(tag)) => {
+                    compatible_updates.insert(image, tag);
+                }
+                Some(Update::Breaking(tag)) => {
+                    breaking_updates.insert(image, tag);
+                }
+                Some(Update::Both {
+                    compatible,
+                    breaking,
+                }) => {
+                    compatible_updates.insert(image.clone(), compatible);
+                    breaking_updates.insert(image, breaking);
+                }
+            }
+        }
+
         DockerfileReport {
-            successes,
+            no_updates,
+            compatible_updates,
+            breaking_updates,
             failures,
         }
     }
 
-    pub fn no_updates(&self) -> impl Iterator<Item = (&Image, &PatternInfo)> {
-        self.successes
+    pub fn display_successes(&self, amount: usize) -> String {
+        let breaking_updates = self
+            .breaking_updates
             .iter()
-            .filter_map(|(image, (maybe_update, pattern_info))| match maybe_update {
-                None => Some((image, pattern_info)),
-                _ => None,
-            })
+            .map(|(image, tag)| format!("{} -!> {}:{}", image, image.name, tag))
+            .collect::<Vec<_>>();
+        let compatible_updates = self
+            .compatible_updates
+            .iter()
+            .map(|(image, tag)| format!("{} -> {}:{}", image, image.name, tag))
+            .collect::<Vec<_>>();
+        let no_updates = self
+            .no_updates
+            .iter()
+            .map(|image| image.to_string())
+            .collect::<Vec<_>>();
+
+        let mut output = Vec::new();
+
+        if !breaking_updates.is_empty() {
+            output.push(format!(
+                "{} with breaking update:\n{}",
+                breaking_updates.len(),
+                breaking_updates.join("\n")
+            ));
+        }
+        if !compatible_updates.is_empty() {
+            output.push(format!(
+                "{} with compatible update:\n{}",
+                compatible_updates.len(),
+                compatible_updates.join("\n")
+            ));
+        }
+        if !no_updates.is_empty() {
+            output.push(format!(
+                "{} with no updates in the latest {} tags:\n{}",
+                no_updates.len(),
+                amount,
+                no_updates.join("\n")
+            ));
+        }
+
+        output.join("\n\n")
     }
 
-    pub fn compatible_updates(&self) -> impl Iterator<Item = (&Image, &Tag, &PatternInfo)> {
-        self.successes
+    pub fn display_failures(&self) -> String {
+        let failures = self
+            .failures
             .iter()
-            .filter_map(|(image, (maybe_update, pattern_info))| {
-                let maybe_tag = match maybe_update {
-                    Some(Update::Compatible(tag)) => Some(tag),
-                    Some(Update::Both { compatible, .. }) => Some(compatible),
-                    _ => None,
-                };
+            .map(|(image, error)| format!("`{}`: {}", image, error))
+            .collect::<Vec<_>>();
 
-                maybe_tag.map(|tag| (image, tag, pattern_info))
-            })
-    }
-
-    pub fn breaking_updates(&self) -> impl Iterator<Item = (&Image, &Tag, &PatternInfo)> {
-        self.successes
-            .iter()
-            .filter_map(|(image, (maybe_update, pattern_info))| {
-                let maybe_tag = match maybe_update {
-                    Some(Update::Breaking(tag)) => Some(tag),
-                    Some(Update::Both { breaking, .. }) => Some(breaking),
-                    _ => None,
-                };
-
-                maybe_tag.map(|tag| (image, tag, pattern_info))
-            })
+        format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
     }
 }
 
@@ -546,8 +593,9 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
+        let success_tag = "14.05".to_string();
         let success_update = (
-            Some(Update::Compatible("14.05".to_string())),
+            Some(Update::Compatible(success_tag.clone())),
             PatternInfo {
                 extractor: VersionExtractor::parse("").unwrap(),
                 breaking_degree: 1,
@@ -561,21 +609,18 @@ mod test {
         let fail_error = CheckError::UnspecifiedPattern;
 
         let input: TestDockerfileResults = vec![
-            (success_image.clone(), Ok(success_update.clone())),
+            (success_image.clone(), Ok(success_update)),
             (fail_image.clone(), Err(fail_error)),
         ];
 
         let result = DockerfileReport::from(input.into_iter());
         assert_eq!(
             result
-                .successes
+                .compatible_updates
                 .into_iter()
-                .map(|(image, (update, _))| (image, update))
+                .map(|(image, update)| (image, update))
                 .collect::<Vec<_>>(),
-            vec![(success_image, success_update)]
-                .into_iter()
-                .map(|(image, (update, _))| (image, update))
-                .collect::<Vec<_>>(),
+            vec![(success_image, success_tag)],
         );
         assert_eq!(
             result

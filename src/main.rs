@@ -14,7 +14,7 @@ use updock::docker_compose::{DockerCompose, DockerComposeReport};
 use updock::image::ImageName;
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
-use updock::{DockerfileReport, DockerfileResult, Update, Updock};
+use updock::{DockerfileReport, Updock};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -76,15 +76,6 @@ const EXIT_BREAKING_UPDATE: ExitCode = ExitCode(2);
 const EXIT_ERROR: ExitCode = ExitCode(10);
 
 impl ExitCode {
-    fn from(maybe_update: &Option<Update>) -> Self {
-        match maybe_update {
-            None => EXIT_NO_UPDATE,
-            Some(Update::Compatible(_)) => EXIT_COMPATIBLE_UPDATE,
-            Some(Update::Breaking(_)) => EXIT_BREAKING_UPDATE,
-            Some(Update::Both { .. }) => EXIT_BREAKING_UPDATE,
-        }
-    }
-
     fn merge(&mut self, other: &ExitCode) {
         self.0 = std::cmp::max(self.0, other.0)
     }
@@ -131,24 +122,19 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let updock = Updock::default();
     let updates = updock.check_input(&input, amount);
 
+    let report = DockerfileReport::from(updates);
     let mut exit_code = EXIT_NO_UPDATE;
+    if !report.compatible_updates.is_empty() {
+        exit_code = EXIT_COMPATIBLE_UPDATE;
+    };
+    if !report.breaking_updates.is_empty() {
+        exit_code = EXIT_BREAKING_UPDATE;
+    };
+    if !report.failures.is_empty() {
+        exit_code = EXIT_ERROR;
+    };
 
     if opts.json {
-        let report = DockerfileReport::from(updates);
-
-        let no_updates = report
-            .no_updates()
-            .map(|(image, _)| image.to_string())
-            .collect::<Vec<_>>();
-        let compatible_updates = report
-            .compatible_updates()
-            .map(|(image, tag, _)| (image.to_string(), format!("{}:{}", image.name, tag)))
-            .collect::<IndexMap<_, _>>();
-        let breaking_updates = report
-            .breaking_updates()
-            .map(|(image, tag, _)| (image.to_string(), format!("{}:{}", image.name, tag)))
-            .collect::<IndexMap<_, _>>();
-
         let failures = report
             .failures
             .into_iter()
@@ -158,82 +144,23 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
                     format!("{:#}", anyhow::Error::new(error)),
                 )
             })
-            .collect::<IndexMap<_, _>>();
-
-        if !compatible_updates.is_empty() {
-            exit_code = EXIT_COMPATIBLE_UPDATE;
-        }
-        if !breaking_updates.is_empty() {
-            exit_code = EXIT_BREAKING_UPDATE;
-        }
-        if !failures.is_empty() {
-            exit_code = EXIT_ERROR;
-        }
+            .collect::<Vec<_>>();
 
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "failures": failures,
-                "breaking_updates": breaking_updates,
-                "compatible_updates": compatible_updates,
-                "no_updates": no_updates
+                "no_updates": report.no_updates,
+                "compatible_updates": report.compatible_updates,
+                "breaking_updates": report.breaking_updates
             }))
-            .context("Failed to serialize result.")?
+            .context("Failed to serialize result")?
         );
     } else {
-        let report = DockerfileReport::from(updates);
-
-        let breaking_updates = report
-            .breaking_updates()
-            .map(|(image, tag, _)| format!("{} -!> {}:{}", image, image.name, tag))
-            .collect::<Vec<_>>();
-        let compatible_updates = report
-            .compatible_updates()
-            .map(|(image, tag, _)| format!("{} -> {}:{}", image, image.name, tag))
-            .collect::<Vec<_>>();
-        let no_updates = report
-            .no_updates()
-            .map(|(image, _)| image.to_string())
-            .collect::<Vec<_>>();
-
-        let failures = report
-            .failures
-            .into_iter()
-            .map(|(image, error)| format!("`{}`: {:#}", image, anyhow::Error::new(error)))
-            .collect::<Vec<_>>();
-
-        if !failures.is_empty() {
-            exit_code.merge(&EXIT_ERROR);
-            eprintln!(
-                "{} with failure:\n{}\n",
-                failures.len(),
-                failures.join("\n")
-            );
+        if !report.failures.is_empty() {
+            eprintln!("{}", report.display_failures());
         }
-        if !breaking_updates.is_empty() {
-            exit_code.merge(&EXIT_BREAKING_UPDATE);
-            println!(
-                "{} with breaking update:\n{}\n",
-                breaking_updates.len(),
-                breaking_updates.join("\n")
-            );
-        }
-        if !compatible_updates.is_empty() {
-            exit_code.merge(&EXIT_COMPATIBLE_UPDATE);
-            println!(
-                "{} with compatible update:\n{}\n",
-                compatible_updates.len(),
-                compatible_updates.join("\n")
-            );
-        }
-        if !no_updates.is_empty() {
-            println!(
-                "{} with no updates in the latest {} tags:\n{}\n",
-                no_updates.len(),
-                amount,
-                no_updates.join("\n")
-            )
-        }
+        println!("{}", report.display_successes(amount));
     }
 
     Ok(exit_code)
@@ -257,23 +184,20 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         (service_name, updates_result)
     });
 
+    let report = DockerComposeReport::from(services);
+
     let mut exit_code = EXIT_NO_UPDATE;
+    if !report.compatible_updates.is_empty() {
+        exit_code = EXIT_COMPATIBLE_UPDATE;
+    };
+    if !report.breaking_updates.is_empty() {
+        exit_code = EXIT_BREAKING_UPDATE;
+    };
+    if !report.failures.is_empty() {
+        exit_code = EXIT_ERROR;
+    };
 
     if opts.check_opts.json {
-        let report = DockerComposeReport::from(services);
-        let successes = report
-            .successes
-            .into_iter()
-            .map(|(service, updates)| {
-                (
-                    service,
-                    updates
-                        .into_iter()
-                        .map(|(image, (update, _))| (image.to_string(), update))
-                        .collect::<IndexMap<_, _>>(),
-                )
-            })
-            .collect::<IndexMap<_, _>>();
         let failures = report
             .failures
             .into_iter()
@@ -298,69 +222,19 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "successes": successes,
-                "failures": failures
+                "failures": failures,
+                "no_updates": report.no_updates,
+                "compatible_updates": report.compatible_updates,
+                "breaking_updates": report.breaking_updates
             }))
             .context("Failed to serialize result")?
         );
     } else {
-        for (service, result) in services {
-            match result {
-                Ok(updates) => {
-                    println!("Service `{}`:", service);
-                    for update_result in updates {
-                        let (result, new_exit_code) = display_update(update_result, amount);
-                        exit_code.merge(&new_exit_code);
-                        match result {
-                            Ok(output) => println!("{}", output),
-                            Err(failure) => eprintln!("{}", failure),
-                        }
-                    }
-                }
-                Err(error) => eprintln!("Failed to check service `{}`: {:#}", service, error),
-            };
-            println!();
+        if !report.failures.is_empty() {
+            eprintln!("{}", report.display_failures());
         }
+        println!("{}", report.display_successes(amount));
     }
 
     Ok(exit_code)
-}
-
-fn display_update(
-    (image, update_result): DockerfileResult<DockerHubTagFetcher>,
-    amount: usize,
-) -> (Result<String, String>, ExitCode) {
-    let mut exit_code = EXIT_NO_UPDATE;
-    let result = update_result
-        .map_err(|error| {
-            exit_code.merge(&EXIT_ERROR);
-            format!("Failed to check `{}`: {:#}", image, error)
-        })
-        .map(|(maybe_update, pattern_info)| {
-            exit_code.merge(&ExitCode::from(&maybe_update));
-
-            match maybe_update {
-                None => format!(
-                    "`{}` has no update matching `{}` in the latest {} tags.",
-                    image, pattern_info.extractor, amount
-                ),
-                Some(Update::Both {
-                    compatible,
-                    breaking,
-                }) => format!(
-                    "`{}` has compatible update to `{}:{}` and breaking update to `{}:{}`.",
-                    image, image.name, compatible, image.name, breaking
-                ),
-                Some(Update::Breaking(breaking)) => format!(
-                    "`{}` has breaking update to `{}:{}`.",
-                    image, image.name, breaking
-                ),
-                Some(Update::Compatible(compatible)) => format!(
-                    "`{}` has compatible update to `{}:{}`.",
-                    image, image.name, compatible
-                ),
-            }
-        });
-
-    (result, exit_code)
 }
