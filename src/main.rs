@@ -46,7 +46,7 @@ struct CheckComposeOpts {
     check_opts: CheckOpts,
 }
 
-fn main() -> Result<()> {
+fn main() {
     env_logger::init();
 
     let opts = Opts::from_args();
