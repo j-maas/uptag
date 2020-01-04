@@ -178,13 +178,13 @@ impl Iterator for DockerHubTagIterator {
                         match response.next {
                             Some(next_page) => {
                                 self.next_page = NextPage::Next(next_page);
-                                next
                             }
                             None => {
                                 self.next_page = NextPage::End;
-                                None
                             }
                         }
+
+                        next
                     })
                     .transpose()
             })
