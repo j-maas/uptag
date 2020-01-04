@@ -1,6 +1,7 @@
 pub mod docker_compose;
 pub mod image;
 pub mod matches;
+pub mod pattern_parser;
 pub mod tag_fetcher;
 pub mod version_extractor;
 
@@ -161,7 +162,7 @@ where
     InvalidPattern {
         pattern: String,
         #[source]
-        source: regex::Error,
+        source: version_extractor::Error,
     },
 }
 
@@ -357,7 +358,7 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
+        let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
@@ -386,7 +387,7 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
+        let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
@@ -415,7 +416,7 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
+        let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
@@ -451,7 +452,7 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
+        let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
@@ -475,7 +476,7 @@ mod test {
 
     #[test]
     fn finds_compatible_update_from_string() {
-        let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -510,7 +511,7 @@ mod test {
 
     #[test]
     fn finds_breaking_update_from_string() {
-        let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -542,7 +543,7 @@ mod test {
 
     #[test]
     fn finds_compatible_and_breaking_update_from_string() {
-        let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -582,7 +583,7 @@ mod test {
 
     #[test]
     fn ignores_lesser_versions_from_string() {
-        let input = "# updock pattern: \"(\\d+)\\.(\\d+)\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
