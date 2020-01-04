@@ -11,10 +11,11 @@ use serde_yaml;
 use structopt::StructOpt;
 
 use updock::docker_compose::{DockerCompose, DockerComposeReport};
+use updock::dockerfile::{Dockerfile, DockerfileReport};
 use updock::image::ImageName;
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
-use updock::{DockerfileReport, Updock};
+use updock::Updock;
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -122,7 +123,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .context("Failed to read from stdin")?;
 
     let updock = Updock::default();
-    let updates = updock.check_input(&input);
+    let updates = Dockerfile::check_input(&updock, &input);
 
     let report = DockerfileReport::from(updates);
     let mut exit_code = EXIT_NO_UPDATE;
@@ -181,7 +182,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         let path = compose_dir.join(service.build).join("Dockerfile");
         let updates_result = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read file `{}`", path.display()))
-            .map(|input| updock.check_input(&input).collect::<Vec<_>>());
+            .map(|input| Dockerfile::check_input(&updock, &input).collect::<Vec<_>>());
 
         (service_name, updates_result)
     });

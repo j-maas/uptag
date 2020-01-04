@@ -4,9 +4,10 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+use crate::display_error;
+use crate::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
 use crate::image::Image;
 use crate::tag_fetcher::TagFetcher;
-use crate::{display_error, CheckError, DockerfileReport, DockerfileResult};
 
 #[derive(Debug, Deserialize)]
 pub struct DockerCompose {
