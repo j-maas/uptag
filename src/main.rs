@@ -88,14 +88,17 @@ impl ExitCode {
 fn fetch(opts: FetchOpts) -> Result<ExitCode> {
     let fetcher = DockerHubTagFetcher::new();
     let tags = fetcher
-        .fetch(&opts.image, opts.amount)
+        .fetch(&opts.image)
+        .take(opts.amount)
+        .collect::<Result<Vec<_>, _>>()
         .context("Failed to fetch tags")?;
 
     let result = if let Some(extractor) = opts.pattern {
+        let tag_count = tags.len();
         let result: Vec<String> = extractor.filter(tags).collect();
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
-            opts.amount,
+            tag_count,
             result.len(),
             extractor
         );
@@ -118,9 +121,8 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .read_to_string(&mut input)
         .context("Failed to read from stdin")?;
 
-    let amount = 25;
     let updock = Updock::default();
-    let updates = updock.check_input(&input, amount);
+    let updates = updock.check_input(&input);
 
     let report = DockerfileReport::from(updates);
     let mut exit_code = EXIT_NO_UPDATE;
@@ -159,8 +161,9 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     } else {
         if !report.failures.is_empty() {
             eprintln!("{}", report.display_failures());
+            println!();
         }
-        println!("{}", report.display_successes(amount));
+        println!("{}", report.display_successes());
     }
 
     Ok(exit_code)
@@ -173,13 +176,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
-    let amount = 25;
     let updock = Updock::default();
     let services = compose.services.into_iter().map(|(service_name, service)| {
         let path = compose_dir.join(service.build).join("Dockerfile");
         let updates_result = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read file `{}`", path.display()))
-            .map(|input| updock.check_input(&input, amount).collect::<Vec<_>>());
+            .map(|input| updock.check_input(&input).collect::<Vec<_>>());
 
         (service_name, updates_result)
     });
@@ -231,9 +233,13 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         );
     } else {
         if !report.failures.is_empty() {
-            eprintln!("{}", report.display_failures());
+            eprintln!(
+                "{}",
+                report.display_failures(|error| format!("{:#}", error))
+            );
+            println!();
         }
-        println!("{}", report.display_successes(amount));
+        println!("{}", report.display_successes());
     }
 
     Ok(exit_code)
