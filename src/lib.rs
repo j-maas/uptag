@@ -238,7 +238,7 @@ where
         }
     }
 
-    pub fn display_successes(&self, amount: usize) -> String {
+    pub fn display_successes(&self) -> String {
         let breaking_updates = self
             .breaking_updates
             .iter()
@@ -273,9 +273,8 @@ where
         }
         if !no_updates.is_empty() {
             output.push(format!(
-                "{} with no updates in the latest {} tags:\n{}",
+                "{} with no updates:\n{}",
                 no_updates.len(),
-                amount,
                 no_updates.join("\n")
             ));
         }
@@ -287,11 +286,23 @@ where
         let failures = self
             .failures
             .iter()
-            .map(|(image, error)| format!("{}: {}", image, error))
+            .map(|(image, error)| format!("{}: {}", image, display_error(error)))
             .collect::<Vec<_>>();
 
         format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
     }
+}
+
+pub fn display_error(error: &impl std::error::Error) -> String {
+    let mut output = error.to_string();
+
+    let mut next = error.source();
+    while let Some(source) = next {
+        output.push_str(&format!(": {}", source));
+        next = source.source();
+    }
+
+    output
 }
 
 #[cfg(test)]

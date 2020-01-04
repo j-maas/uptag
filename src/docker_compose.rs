@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::image::Image;
 use crate::tag_fetcher::TagFetcher;
-use crate::{CheckError, DockerfileReport, DockerfileResult};
+use crate::{display_error, CheckError, DockerfileReport, DockerfileResult};
 
 #[derive(Debug, Deserialize)]
 pub struct DockerCompose {
@@ -39,7 +39,6 @@ impl<T, E> DockerComposeReport<T, E>
 where
     T: std::fmt::Debug + TagFetcher,
     T::FetchError: 'static,
-    E: std::fmt::Display,
 {
     pub fn from(
         results: impl Iterator<
@@ -86,7 +85,7 @@ where
         }
     }
 
-    pub fn display_successes(&self, amount: usize) -> String {
+    pub fn display_successes(&self) -> String {
         let breaking_updates = self
             .breaking_updates
             .iter()
@@ -136,9 +135,8 @@ where
         }
         if !no_updates.is_empty() {
             output.push(format!(
-                "{} with no updates in the latest {} tags:\n{}",
+                "{} with no updates:\n{}",
                 no_updates.len(),
-                amount,
                 no_updates.join("\n")
             ));
         }
@@ -146,7 +144,7 @@ where
         output.join("\n\n")
     }
 
-    pub fn display_failures(&self) -> String {
+    pub fn display_failures(&self, custom_display_error: impl Fn(&E) -> String) -> String {
         let failures = self
             .failures
             .iter()
@@ -154,11 +152,13 @@ where
                 Ok(check_errors) => {
                     let errors = check_errors
                         .iter()
-                        .map(|(image, check_error)| format!("  {}: {}", image, check_error))
+                        .map(|(image, check_error)| {
+                            format!("  {}: {}", image, display_error(check_error))
+                        })
                         .join("\n");
                     format!("{}:\n{}", service, errors)
                 }
-                Err(error) => format!("{}: {}", service, error),
+                Err(error) => format!("{}: {}", service, custom_display_error(error)),
             })
             .collect::<Vec<_>>();
 

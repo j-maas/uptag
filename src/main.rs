@@ -120,7 +120,6 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .read_to_string(&mut input)
         .context("Failed to read from stdin")?;
 
-    let amount = 25;
     let updock = Updock::default();
     let updates = updock.check_input(&input);
 
@@ -162,7 +161,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         if !report.failures.is_empty() {
             eprintln!("{}", report.display_failures());
         }
-        println!("{}", report.display_successes(amount));
+        println!("{}", report.display_successes());
     }
 
     Ok(exit_code)
@@ -175,7 +174,6 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
-    let amount = 25;
     let updock = Updock::default();
     let services = compose.services.into_iter().map(|(service_name, service)| {
         let path = compose_dir.join(service.build).join("Dockerfile");
@@ -233,9 +231,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         );
     } else {
         if !report.failures.is_empty() {
-            eprintln!("{}", report.display_failures());
+            eprintln!(
+                "{}",
+                report.display_failures(|error| format!("{:#}", error))
+            );
         }
-        println!("{}", report.display_successes(amount));
+        println!("{}", report.display_successes());
     }
 
     Ok(exit_code)
