@@ -1,6 +1,7 @@
 pub mod docker_compose;
 pub mod image;
 pub mod matches;
+pub mod pattern_parser;
 pub mod tag_fetcher;
 pub mod version_extractor;
 
