@@ -51,7 +51,9 @@ where
 {
     #[error("{0}")]
     FetchError(#[from] E),
-    #[error("Failed to find tag `{0}` in the latest {1} tags")]
+    #[error(
+        "Failed to find tag `{0}` in the latest {1} tags (there might be updates in older tags)"
+    )]
     UnfoundTag(Tag, usize),
 }
 

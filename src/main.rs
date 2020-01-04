@@ -94,10 +94,11 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
         .context("Failed to fetch tags")?;
 
     let result = if let Some(extractor) = opts.pattern {
+        let tag_count = tags.len();
         let result: Vec<String> = extractor.filter(tags).collect();
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
-            opts.amount,
+            tag_count,
             result.len(),
             extractor
         );
@@ -160,6 +161,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     } else {
         if !report.failures.is_empty() {
             eprintln!("{}", report.display_failures());
+            println!();
         }
         println!("{}", report.display_successes());
     }
@@ -235,6 +237,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                 "{}",
                 report.display_failures(|error| format!("{:#}", error))
             );
+            println!();
         }
         println!("{}", report.display_successes());
     }
