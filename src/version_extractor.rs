@@ -2,53 +2,18 @@ use std::fmt;
 
 use regex::Regex;
 
-/// A version format detecting and comparing versions.
-///
-/// The extractor is built on a regular expression that extracts the numbers
-/// to be used for the version. The goal is to have all relevant numbers captured
-/// in [unnamed capture groups]. The [Regex] syntax is used.
-///
-/// Note that only unnamed capture groups will be extracted. Named capture groups have no effect.
-/// You are responsible for ensuring that all capture groups only capture strings
-/// that can be parsed into an unsigned integer. Otherwise, [`extract_from()`] will return `None`.
-///
-/// This also means that it is not possible to affect the ordering of the extracted numbers.
-/// They will always be compared from left to right in the order of the capture groups. As an example,
-/// it is not possible to extract a `<minor>.<major>` scheme, where you want to sort first by `<major>` and
-/// then by `<minor>`. It will have to be sorted first by `<minor>` then by `<major>`, since `<minor>` is
-/// before `<major>`.
-///
-/// # Examples
-///
-/// Detect only proper SemVer, without any prefix or suffix:
-///
-/// ```rust
-/// # use updock::version_extractor::VersionExtractor;
-/// let extractor = VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
-/// assert!(extractor.matches("1.2.3"));
-/// assert!(!extractor.matches("1.2.3-debian"));
-/// ```
-///
-/// Detect a sequential version after a prefix:
-///
-/// ```rust
-/// # use updock::version_extractor::VersionExtractor;
-/// let extractor = VersionExtractor::parse(r"^debian-r(\d+)$").unwrap();
-/// assert!(extractor.matches("debian-r24"));
-/// assert!(!extractor.matches("debian-r24-alpha"));
-/// ```
-///
-/// [unnamed capture groups]: https://docs.rs/regex/1.3.1/regex/#grouping-and-flags
-/// [Regex]: https://docs.rs/regex/1.3.1/regex/index.html#syntax
-/// [`extract_from()`]: #method.extract_from
+use crate::pattern_parser;
+use crate::pattern_parser::Pattern;
+
 #[derive(Debug, Clone)]
 pub struct VersionExtractor {
+    pattern: Pattern,
     regex: Regex,
 }
 
 impl PartialEq for VersionExtractor {
     fn eq(&self, other: &Self) -> bool {
-        self.regex.as_str() == other.regex.as_str()
+        self.pattern == other.pattern
     }
 }
 
@@ -56,14 +21,14 @@ impl Eq for VersionExtractor {}
 
 impl fmt::Display for VersionExtractor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", self.pattern)
     }
 }
 
 impl std::str::FromStr for VersionExtractor {
-    type Err = regex::Error;
+    type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse(s)
+        Self::parse(s).map_err(|error| error.to_string())
     }
 }
 
@@ -81,21 +46,16 @@ where
 }
 
 impl VersionExtractor {
-    pub fn new(regex: Regex) -> VersionExtractor {
-        VersionExtractor { regex }
+    pub fn new(pattern: Pattern) -> VersionExtractor {
+        let regex = pattern.regex();
+        VersionExtractor { pattern, regex }
     }
 
-    pub fn parse<S>(pattern: S) -> Result<VersionExtractor, regex::Error>
+    pub fn parse<'a, S>(pattern: S) -> Result<VersionExtractor, Error>
     where
-        S: AsRef<str>,
+        S: 'a + AsRef<str>,
     {
-        Ok(VersionExtractor {
-            regex: Regex::new(pattern.as_ref())?,
-        })
-    }
-
-    pub fn as_str(&self) -> &str {
-        self.regex.as_str()
+        Ok(VersionExtractor::new(Pattern::parse(pattern.as_ref())?))
     }
 
     pub fn matches<T>(&self, candidate: T) -> bool
@@ -170,6 +130,8 @@ impl VersionExtractor {
         self.extract_iter(candidates).max_by(|a, b| a.0.cmp(&b.0))
     }
 }
+
+pub type Error = pattern_parser::Error;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Version {
@@ -256,7 +218,7 @@ mod tests {
 
     lazy_static! {
         static ref STRICT_SEMVER: VersionExtractor =
-            VersionExtractor::parse(r"^(\d+)\.(\d+)\.(\d+)$").unwrap();
+            VersionExtractor::parse("<>.<>.<>").unwrap();
     }
 
     // Extraction
@@ -282,9 +244,9 @@ mod tests {
         }
 
         #[test]
-        fn extracts_semver(version: SemVer, suffix in r"[^\d]\PC*") {
-            let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)\.(\d+)").unwrap();
-            let candidate = format!("{}{}", display_semver(version), suffix);
+        fn extracts_semver(version: SemVer) {
+            let extractor = VersionExtractor::parse("<>.<>.<>-debian").unwrap();
+            let candidate = format!("{}-debian", display_semver(version));
             let version = Version::from(version);
             prop_assert_eq!(extractor.extract_from(&candidate), Some(version));
         }
@@ -304,7 +266,7 @@ mod tests {
             let tags = valids.clone().into_iter().interleave(invalids.into_iter());
             let extractor = &STRICT_SEMVER;
             let filtered: Vec<String> = extractor.filter(tags).collect();
-            assert_eq!(filtered, valids);
+            prop_assert_eq!(filtered, valids);
         }
 
         #[test]

@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::image::{Image, ImageName};
+use crate::version_extractor;
 use crate::version_extractor::{Tagged, VersionExtractor};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +56,7 @@ impl<'t> Matches<'t> {
         }
     }
 
-    pub fn extractor(&self) -> Option<Result<VersionExtractor, regex::Error>> {
+    pub fn extractor(&self) -> Option<Result<VersionExtractor, version_extractor::Error>> {
         self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
     }
 
@@ -78,7 +79,7 @@ mod test {
     struct ExpectedMatches {
         image_name: ImageName,
         image_tag: &'static str,
-        extractor: Option<Result<VersionExtractor, regex::Error>>,
+        extractor: Option<Result<VersionExtractor, version_extractor::Error>>,
         breaking_degree: Option<usize>,
     }
 
