@@ -11,9 +11,35 @@ pub trait TagFetcher {
     type TagIter: IntoIterator<Item = Result<Tag, Self::FetchError>>;
     type FetchError: std::error::Error;
 
+    /// Constructs a fallible iterator over the tags in order from newest to oldest.
+    ///
+    /// The [`fetch_until`] method relies on the order being antichronological.
+    ///
+    /// # Errors
+    /// If the `TagFetcher` encounters an error, it will emit an error variant
+    /// as the next iterator item.
+    ///
+    /// [`fetch_until`]: #method.fetch_until
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
 
+    /// Provides the maximal number of tags to search in [`fetch_until`].
+    ///
+    /// [`fetch_until`]: #method.fetch_until
     fn max_search_amount(&self) -> usize;
+
+    /// Fetches all tags until before the provided `tag` is encountered or
+    /// the search limit set by [`max_search_amount`] is reached.
+    ///
+    /// The `tag` itself is excluded from the resulting list.
+    ///
+    /// # Errors
+    /// Any [`FetchError`] encountered while fetching new tags will be forwarded.
+    ///
+    /// If `tag` could not be found and the search limit is reached, an [`UnfoundTag`]
+    /// error variant is emitted.
+    ///
+    /// [`FetchError`]: #associatedtype.FetchError
+    /// [`UnfoundTag`]: enum.FetchUntilError.html#variant.UnfoundTag
     fn fetch_until(
         &self,
         image: &ImageName,
