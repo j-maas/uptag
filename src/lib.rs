@@ -9,9 +9,9 @@ use itertools::{Either, Itertools};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use image::{Image, ImageName};
+use image::Image;
 use matches::Matches;
-use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use tag_fetcher::{DockerHubTagFetcher, FetchUntilError, TagFetcher};
 use version_extractor::{Version, VersionExtractor};
 
 pub struct Updock<T>
@@ -30,17 +30,13 @@ impl Default for Updock<DockerHubTagFetcher> {
 impl<T> Updock<T>
 where
     T: TagFetcher + std::fmt::Debug + 'static,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
     pub fn new(fetcher: T) -> Updock<T> {
         Updock { fetcher }
     }
 
-    pub fn check_input<'a>(
-        &'a self,
-        input: &'a str,
-        amount: usize,
-    ) -> impl DockerfileResults<T> + 'a {
+    pub fn check_input<'a>(&'a self, input: &'a str) -> impl DockerfileResults<T> + 'a {
         Matches::iter(input).map(move |matches| {
             let image = matches.image();
             let result = Self::extract_check_info(
@@ -49,7 +45,7 @@ where
                 matches.breaking_degree().unwrap_or(0),
             )
             .and_then(|(current_version, pattern_info)| {
-                self.find_update(&image.name, &current_version, &pattern_info, amount)
+                self.find_update(&image, &current_version, &pattern_info)
                     .map_err(CheckError::FailedFetch)
                     .map(|maybe_update| (maybe_update, pattern_info))
             });
@@ -86,12 +82,11 @@ where
 
     pub fn find_update(
         &self,
-        image_name: &ImageName,
+        image: &Image,
         current_version: &Version,
         pattern: &PatternInfo,
-        amount: usize,
-    ) -> Result<Option<Update>, T::Error> {
-        let tags = self.fetcher.fetch(image_name, amount)?;
+    ) -> Result<Option<Update>, FetchUntilError<T::FetchError>> {
+        let tags = self.fetcher.fetch_until(&image.name, &image.tag)?;
         let (compatible, breaking): (Vec<_>, Vec<_>) = tags
             .into_iter()
             .filter_map(|tag| {
@@ -154,10 +149,10 @@ where
     // For details, see https://github.com/rust-lang/rust/issues/26925
     // Including this bound is the easiest workaround, since TagFetchers can easily derive Debug.
     T: TagFetcher + std::fmt::Debug,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
     #[error("Failed to fetch tags")]
-    FailedFetch(#[source] T::Error),
+    FailedFetch(#[source] FetchUntilError<T::FetchError>),
     #[error("The current tag `{tag}` does not match the required pattern `{pattern}`")]
     InvalidCurrentTag { tag: Tag, pattern: String },
     #[error("Failed to find version pattern")]
@@ -176,7 +171,7 @@ pub type DockerfileResult<T> = (Image, Result<(Option<Update>, PatternInfo), Che
 pub trait DockerfileResults<T>: Iterator<Item = DockerfileResult<T>>
 where
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
 }
 
@@ -184,7 +179,7 @@ impl<A, T> DockerfileResults<T> for A
 where
     A: Iterator<Item = DockerfileResult<T>>,
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
 }
 
@@ -192,7 +187,7 @@ where
 pub struct DockerfileReport<T>
 where
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
     pub no_updates: Vec<Image>,
     pub compatible_updates: IndexMap<Image, Tag>,
@@ -203,7 +198,7 @@ where
 impl<T> DockerfileReport<T>
 where
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
     pub fn from(results: impl DockerfileResults<T>) -> Self {
         let (successes, failures): (Vec<_>, IndexMap<_, _>) =
@@ -303,6 +298,8 @@ where
 mod test {
     use super::*;
 
+    use crate::image::ImageName;
+
     use std::collections::HashMap;
 
     #[derive(Debug)]
@@ -319,15 +316,18 @@ mod test {
     }
 
     impl TagFetcher for ArrayFetcher {
-        type Error = FetchError;
+        type TagIter = Vec<Result<Tag, Self::FetchError>>;
+        type FetchError = FetchError;
 
-        fn fetch(&self, image: &ImageName, _amount: usize) -> Result<Vec<Tag>, Self::Error> {
+        fn fetch(&self, image: &ImageName) -> Self::TagIter {
             self.content
                 .get(image)
-                .ok_or(FetchError {
-                    image_name: image.to_string(),
+                .map(|tags| tags.iter().map(|tag| Ok(tag.clone())).collect::<Vec<_>>())
+                .unwrap_or_else(|| {
+                    vec![Err(FetchError {
+                        image_name: image.to_string(),
+                    })]
                 })
-                .map(|tags| tags.clone())
         }
     }
 
@@ -339,79 +339,88 @@ mod test {
 
     #[test]
     fn finds_compatible_update() {
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
             breaking_degree: 1,
         };
 
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
                 "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image, &current_version, &pattern_info);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Compatible("14.05".to_string())));
     }
 
     #[test]
     fn finds_breaking_update() {
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
             breaking_degree: 1,
         };
 
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
                 "15.02".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image, &current_version, &pattern_info);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, Some(Update::Breaking("15.02".to_string())));
     }
 
     #[test]
     fn finds_compatible_and_breaking_update() {
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
             breaking_degree: 1,
         };
 
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
-                "14.05".to_string(),
                 "15.02".to_string(),
+                "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image, &current_version, &pattern_info);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -424,25 +433,28 @@ mod test {
 
     #[test]
     fn ignores_lesser_version() {
-        let image_name = ImageName::new(None, "ubuntu".to_string());
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
         let extractor = VersionExtractor::parse(r"(\d+)\.(\d+)").unwrap();
-        let current_version = extractor.extract_from("14.04".to_string()).unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
         let pattern_info = PatternInfo {
             extractor,
             breaking_degree: 1,
         };
 
         let fetcher = ArrayFetcher::with(
-            image_name.clone(),
+            image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
                 "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image_name, &current_version, &pattern_info, 25);
+        let result = updock.find_update(&image, &current_version, &pattern_info);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, None);
     }
@@ -458,16 +470,16 @@ mod test {
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
-                "14.05".to_string(),
                 "14.12".to_string(),
+                "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let results = updock.check_input(input, 25);
+        let results = updock.check_input(input);
         let actual_updates = results
             .filter_map(|(image_name, result)| {
                 result
@@ -493,15 +505,15 @@ mod test {
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
                 "15.01".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let results = updock.check_input(input, 25);
+        let results = updock.check_input(input);
         let actual_updates = results
             .filter_map(|(image, result)| {
                 result.ok().map(|(maybe_update, _)| (image, maybe_update))
@@ -525,17 +537,17 @@ mod test {
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
-                "14.04".to_string(),
-                "14.05".to_string(),
-                "14.12".to_string(),
                 "15.01".to_string(),
+                "14.12".to_string(),
+                "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let results = updock.check_input(input, 25);
+        let results = updock.check_input(input);
         let actual_updates = results
             .filter_map(|(image, result)| {
                 result.ok().map(|(maybe_update, _)| (image, maybe_update))
@@ -565,14 +577,14 @@ mod test {
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
             vec![
-                "13.03".to_string(),
-                "14.03".to_string(),
                 "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
             ],
         );
         let updock = Updock::new(fetcher);
 
-        let results = updock.check_input(input, 25);
+        let results = updock.check_input(input);
         let actual_updates = results
             .filter_map(|(image, result)| {
                 result.ok().map(|(maybe_update, _)| (image, maybe_update))

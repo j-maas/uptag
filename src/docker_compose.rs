@@ -25,7 +25,7 @@ type Tag = String;
 pub struct DockerComposeReport<T, E>
 where
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
 {
     pub no_updates: IndexMap<ServiceName, Vec<Image>>,
     pub compatible_updates: IndexMap<ServiceName, IndexMap<Image, Tag>>,
@@ -38,7 +38,7 @@ type DockerComposeFailures<T, E> = IndexMap<ServiceName, Result<IndexMap<Image, 
 impl<T, E> DockerComposeReport<T, E>
 where
     T: std::fmt::Debug + TagFetcher,
-    T::Error: 'static,
+    T::FetchError: 'static,
     E: std::fmt::Display,
 {
     pub fn from(
