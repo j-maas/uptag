@@ -146,7 +146,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
                     format!("{:#}", anyhow::Error::new(error)),
                 )
             })
-            .collect::<Vec<_>>();
+            .collect::<IndexMap<_, _>>();
 
         println!(
             "{}",
@@ -211,8 +211,10 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                         .map(|updates| {
                             updates
                                 .into_iter()
-                                .map(|(_, error)| format!("{:#}", error))
-                                .collect::<Vec<_>>()
+                                .map(|(image, error)| {
+                                    (image, format!("{:#}", anyhow::Error::new(error)))
+                                })
+                                .collect::<IndexMap<_, _>>()
                         }),
                 )
             })
