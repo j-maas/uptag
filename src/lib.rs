@@ -287,7 +287,7 @@ where
         let failures = self
             .failures
             .iter()
-            .map(|(image, error)| format!("`{}`: {}", image, error))
+            .map(|(image, error)| format!("{}: {}", image, error))
             .collect::<Vec<_>>();
 
         format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
