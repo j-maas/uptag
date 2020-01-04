@@ -7,11 +7,13 @@ use thiserror::Error;
 
 use crate::image::ImageName;
 
+/// Enables fetching of tags belonging to an image.
 pub trait TagFetcher {
     type TagIter: IntoIterator<Item = Result<Tag, Self::FetchError>>;
     type FetchError: std::error::Error;
 
-    /// Constructs a fallible iterator over the tags in order from newest to oldest.
+    /// Constructs a fallible iterator over the `image`'s tags ordered
+    /// from newest to oldest.
     ///
     /// The [`fetch_until`] method relies on the order being antichronological.
     ///
@@ -64,26 +66,31 @@ pub trait TagFetcher {
             if found {
                 Ok(tags)
             } else {
-                Err(FetchUntilError::UnfoundTag(
-                    tag.to_string(),
-                    self.max_search_amount(),
-                ))
+                Err(FetchUntilError::UnfoundTag {
+                    tag: tag.to_string(),
+                    max_search_amount: self.max_search_amount(),
+                })
             }
         })
     }
 }
 
+/// Error from [`fetch_until`].
+///
+/// [`fetch_until`]: trait.TagFetcher.html#method.fetch_until
 #[derive(Error, Debug, PartialEq)]
 pub enum FetchUntilError<E>
 where
     E: 'static + std::error::Error,
 {
+    /// Indicates that an error occurred while fetching new tags.
     #[error("{0}")]
     FetchError(#[from] E),
     #[error(
-        "Failed to find tag `{0}` in the latest {1} tags (there might be updates in older tags beyond this search limit)"
+        "Failed to find tag `{tag}` in the latest {max_search_amount} tags (there might be updates in older tags beyond this search limit)"
     )]
-    UnfoundTag(Tag, usize),
+    /// Indicates that the `tag` could not be found in the latest `max_search_amount` tags.
+    UnfoundTag { tag: Tag, max_search_amount: usize },
 }
 
 #[derive(Debug, Default)]
@@ -311,10 +318,10 @@ pub mod test {
         let result = fetcher.fetch_until(&image.name, &image.tag);
         assert_eq!(
             result,
-            Err(FetchUntilError::UnfoundTag(
-                image.tag,
-                fetcher.max_search_amount()
-            ))
+            Err(FetchUntilError::UnfoundTag {
+                tag: image.tag,
+                max_search_amount: fetcher.max_search_amount()
+            })
         );
     }
 
@@ -339,10 +346,10 @@ pub mod test {
         let result = fetcher.fetch_until(&image.name, &image.tag);
         assert_eq!(
             result,
-            Err(FetchUntilError::UnfoundTag(
-                image.tag,
-                fetcher.max_search_amount()
-            ))
+            Err(FetchUntilError::UnfoundTag {
+                tag: image.tag,
+                max_search_amount: fetcher.max_search_amount()
+            })
         );
     }
 
