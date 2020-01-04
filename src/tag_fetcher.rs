@@ -12,6 +12,8 @@ pub trait TagFetcher {
     type FetchError: std::error::Error;
 
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
+
+    fn max_search_amount(&self) -> usize;
     fn fetch_until(
         &self,
         image: &ImageName,
@@ -28,12 +30,16 @@ pub trait TagFetcher {
                     .unwrap_or(false);
                 !found
             })
+            .take(self.max_search_amount())
             .map(|result| result.map_err(FetchUntilError::FetchError))
             .collect::<Result<_, _>>();
         if found {
             tags
         } else {
-            Err(FetchUntilError::UnfoundTag(tag.to_string()))
+            Err(FetchUntilError::UnfoundTag(
+                tag.to_string(),
+                self.max_search_amount(),
+            ))
         }
     }
 }
@@ -45,8 +51,8 @@ where
 {
     #[error("{0}")]
     FetchError(#[from] E),
-    #[error("Failed to find tag `{0}`")]
-    UnfoundTag(Tag),
+    #[error("Failed to find tag `{0}` in the latest {1} tags")]
+    UnfoundTag(Tag, usize),
 }
 
 #[derive(Debug, Default)]
@@ -75,29 +81,8 @@ impl TagFetcher for DockerHubTagFetcher {
         DockerHubTagIterator::new(name)
     }
 
-    fn fetch_until(
-        &self,
-        image: &ImageName,
-        tag: &str,
-    ) -> Result<Vec<Tag>, FetchUntilError<Self::FetchError>> {
-        let mut found = false;
-        let tags = self
-            .fetch(image)
-            .take_while(|result| {
-                found = result
-                    .as_ref()
-                    .map(|candidate| candidate == tag)
-                    .unwrap_or(false);
-                found
-            })
-            .map(|result| result.map_err(FetchUntilError::FetchError))
-            .take(self.max_search_amount)
-            .collect::<Result<_, _>>();
-        if !found {
-            Err(FetchUntilError::UnfoundTag(tag.to_string()))
-        } else {
-            tags
-        }
+    fn max_search_amount(&self) -> usize {
+        self.max_search_amount
     }
 }
 

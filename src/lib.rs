@@ -329,6 +329,9 @@ mod test {
                     })]
                 })
         }
+        fn max_search_amount(&self) -> usize {
+            100
+        }
     }
 
     #[derive(Error, Debug)]
