@@ -310,47 +310,8 @@ pub fn display_error(error: &impl std::error::Error) -> String {
 mod test {
     use super::*;
 
+    use crate::tag_fetcher::test::ArrayFetcher;
     use crate::image::ImageName;
-
-    use std::collections::HashMap;
-
-    #[derive(Debug)]
-    struct ArrayFetcher {
-        content: HashMap<ImageName, Vec<Tag>>,
-    }
-
-    impl ArrayFetcher {
-        fn with(image_name: ImageName, tags: Vec<Tag>) -> ArrayFetcher {
-            let mut content = HashMap::new();
-            content.insert(image_name, tags);
-            ArrayFetcher { content }
-        }
-    }
-
-    impl TagFetcher for ArrayFetcher {
-        type TagIter = Vec<Result<Tag, Self::FetchError>>;
-        type FetchError = FetchError;
-
-        fn fetch(&self, image: &ImageName) -> Self::TagIter {
-            self.content
-                .get(image)
-                .map(|tags| tags.iter().map(|tag| Ok(tag.clone())).collect::<Vec<_>>())
-                .unwrap_or_else(|| {
-                    vec![Err(FetchError {
-                        image_name: image.to_string(),
-                    })]
-                })
-        }
-        fn max_search_amount(&self) -> usize {
-            100
-        }
-    }
-
-    #[derive(Error, Debug)]
-    #[error("Failed to fetch tags for image {image_name}.")]
-    struct FetchError {
-        image_name: String,
-    }
 
     #[test]
     fn finds_compatible_update() {
