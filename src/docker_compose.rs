@@ -166,3 +166,117 @@ where
         format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::image::ImageName;
+    use crate::tag_fetcher::test::ArrayFetcher;
+    use crate::version_extractor::VersionExtractor;
+    use crate::{PatternInfo, Update};
+
+    type TestDockerComposeResults = Vec<(
+        ServiceName,
+        Result<
+            Vec<(
+                Image,
+                Result<(Option<Update>, PatternInfo), CheckError<ArrayFetcher>>,
+            )>,
+            (),
+        >,
+    )>;
+
+    #[test]
+    fn generates_docker_compose_report() {
+        let ubuntu_service = "ubuntu".to_string();
+        let compatible_image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let compatible_tag = "14.05".to_string();
+        let compatible_update = (
+            Some(Update::Compatible(compatible_tag.clone())),
+            PatternInfo {
+                extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
+                breaking_degree: 1,
+            },
+        );
+
+        let fail_image = Image {
+            name: ImageName::new(None, "error".to_string()),
+            tag: "1".to_string(),
+        };
+        let fail_error = CheckError::UnspecifiedPattern;
+
+        let alpine_service = "alpine".to_string();
+        let breaking_image = Image {
+            name: ImageName::new(None, "alpine".to_string()),
+            tag: "3.8.4".to_string(),
+        };
+        let breaking_tag = "4.0.2".to_string();
+        let breaking_update = (
+            Some(Update::Breaking(breaking_tag.clone())),
+            PatternInfo {
+                extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
+                breaking_degree: 1,
+            },
+        );
+
+        let input: TestDockerComposeResults = vec![
+            (
+                ubuntu_service.clone(),
+                Ok(vec![
+                    (compatible_image.clone(), Ok(compatible_update)),
+                    (fail_image.clone(), Err(fail_error)),
+                ]),
+            ),
+            (
+                alpine_service.clone(),
+                Ok(vec![(breaking_image.clone(), Ok(breaking_update))]),
+            ),
+        ];
+
+        let result = DockerComposeReport::from(input.into_iter());
+        assert_eq!(
+            result.compatible_updates,
+            vec![(
+                ubuntu_service.clone(),
+                vec![(compatible_image, compatible_tag)]
+                    .into_iter()
+                    .collect::<IndexMap<_, _>>()
+            )]
+            .into_iter()
+            .collect::<IndexMap<_, _>>(),
+        );
+        assert_eq!(
+            result
+                .failures
+                .into_iter()
+                .map(|(service, result)| {
+                    (
+                        service,
+                        result.map(|images| {
+                            images
+                                .into_iter()
+                                .map(|(image, _)| image)
+                                .collect::<Vec<_>>()
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(ubuntu_service, Ok(vec![fail_image]))]
+        );
+        assert_eq!(
+            result.breaking_updates,
+            vec![(
+                alpine_service,
+                vec![(breaking_image, breaking_tag)]
+                    .into_iter()
+                    .collect::<IndexMap<_, _>>()
+            )]
+            .into_iter()
+            .collect::<IndexMap<_, _>>()
+        )
+    }
+}
