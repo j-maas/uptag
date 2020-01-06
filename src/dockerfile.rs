@@ -249,6 +249,7 @@ mod matches {
     }
 
     impl<'t> Matches<'t> {
+        #[allow(dead_code)]
         pub fn first(dockerfile: &'t str) -> Option<Matches<'t>> {
             STATEMENT.captures(dockerfile).map(Self::from_captures)
         }
@@ -282,6 +283,7 @@ mod matches {
             }
         }
 
+        #[allow(dead_code)]
         pub fn extractor(&self) -> Option<Result<VersionExtractor, version_extractor::Error>> {
             self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
         }
