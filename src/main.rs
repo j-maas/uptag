@@ -10,9 +10,10 @@ use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
 
-use updock::docker_compose::{DockerCompose, DockerComposeReport};
-use updock::dockerfile::{Dockerfile, DockerfileReport};
 use updock::image::ImageName;
+use updock::report::{
+    DockerCompose, DockerComposeReport, Dockerfile, DockerfileReport, UpdateLevel,
+};
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
 use updock::Updock;
@@ -77,6 +78,16 @@ const EXIT_BREAKING_UPDATE: ExitCode = ExitCode(2);
 const EXIT_ERROR: ExitCode = ExitCode(10);
 
 impl ExitCode {
+    fn from(level: UpdateLevel) -> ExitCode {
+        use UpdateLevel::*;
+        match level {
+            Failure => EXIT_ERROR,
+            BreakingUpdate => EXIT_BREAKING_UPDATE,
+            CompatibleUpdate => EXIT_COMPATIBLE_UPDATE,
+            NoUpdates => EXIT_NO_UPDATE,
+        }
+    }
+
     fn merge(&mut self, other: &ExitCode) {
         self.0 = std::cmp::max(self.0, other.0)
     }
@@ -125,19 +136,11 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let updock = Updock::default();
     let updates = Dockerfile::check_input(&updock, &input);
 
-    let report = DockerfileReport::from(updates);
-    let mut exit_code = EXIT_NO_UPDATE;
-    if !report.compatible_updates.is_empty() {
-        exit_code = EXIT_COMPATIBLE_UPDATE;
-    };
-    if !report.breaking_updates.is_empty() {
-        exit_code = EXIT_BREAKING_UPDATE;
-    };
-    if !report.failures.is_empty() {
-        exit_code = EXIT_ERROR;
-    };
+    let dockerfile_report = DockerfileReport::from(updates);
+    let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
     if opts.json {
+        let report = dockerfile_report.report;
         let failures = report
             .failures
             .into_iter()
@@ -160,11 +163,11 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
             .context("Failed to serialize result")?
         );
     } else {
-        if !report.failures.is_empty() {
-            eprintln!("{}", report.display_failures());
+        if !dockerfile_report.report.failures.is_empty() {
+            eprintln!("{}", dockerfile_report.display_failures());
             println!();
         }
-        println!("{}", report.display_successes());
+        println!("{}", dockerfile_report.display_successes());
     }
 
     Ok(exit_code)
@@ -187,20 +190,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         (service_name, updates_result)
     });
 
-    let report = DockerComposeReport::from(services);
+    let docker_compose_report = DockerComposeReport::from(services);
 
-    let mut exit_code = EXIT_NO_UPDATE;
-    if !report.compatible_updates.is_empty() {
-        exit_code = EXIT_COMPATIBLE_UPDATE;
-    };
-    if !report.breaking_updates.is_empty() {
-        exit_code = EXIT_BREAKING_UPDATE;
-    };
-    if !report.failures.is_empty() {
-        exit_code = EXIT_ERROR;
-    };
+    let mut exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
     if opts.check_opts.json {
+        let report = docker_compose_report.report;
         let failures = report
             .failures
             .into_iter()
@@ -235,14 +230,14 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
             .context("Failed to serialize result")?
         );
     } else {
-        if !report.failures.is_empty() {
+        if !docker_compose_report.report.failures.is_empty() {
             eprintln!(
                 "{}",
-                report.display_failures(|error| format!("{:#}", error))
+                docker_compose_report.display_failures(|error| format!("{:#}", error))
             );
             println!();
         }
-        println!("{}", report.display_successes());
+        println!("{}", docker_compose_report.display_successes());
     }
 
     Ok(exit_code)

@@ -1,9 +1,9 @@
-use indexmap::IndexMap;
 use itertools::{Either, Itertools};
 use thiserror::Error;
 
 use crate::image::Image;
 use crate::matches::Matches;
+use crate::report::Report;
 use crate::tag_fetcher::{FetchUntilError, TagFetcher};
 use crate::version_extractor;
 use crate::version_extractor::VersionExtractor;
@@ -117,10 +117,7 @@ where
     T: std::fmt::Debug + TagFetcher,
     T::FetchError: 'static,
 {
-    pub no_updates: Vec<Image>,
-    pub compatible_updates: IndexMap<Image, Tag>,
-    pub breaking_updates: IndexMap<Image, Tag>,
-    pub failures: IndexMap<Image, CheckError<T>>,
+    pub report: Report<Image, Tag, CheckError<T>>,
 }
 
 impl<T> DockerfileReport<T>
@@ -129,58 +126,63 @@ where
     T::FetchError: 'static,
 {
     pub fn from(results: impl DockerfileResults<T>) -> Self {
-        let (successes, failures): (Vec<_>, IndexMap<_, _>) =
+        let (successes, failures): (Vec<_>, Vec<_>) =
             results.partition_map(|(image, result)| match result {
                 Ok(info) => Either::Left((image, info)),
                 Err(error) => Either::Right((image, error)),
             });
 
         let mut no_updates = Vec::new();
-        let mut compatible_updates = IndexMap::new();
-        let mut breaking_updates = IndexMap::new();
+        let mut compatible_updates = Vec::new();
+        let mut breaking_updates = Vec::new();
 
         for (image, (maybe_update, _)) in successes {
             match maybe_update {
-                None => no_updates.push(image),
+                None => no_updates.push((image, ())),
                 Some(Update::Compatible(tag)) => {
-                    compatible_updates.insert(image, tag);
+                    compatible_updates.push((image, tag));
                 }
                 Some(Update::Breaking(tag)) => {
-                    breaking_updates.insert(image, tag);
+                    breaking_updates.push((image, tag));
                 }
                 Some(Update::Both {
                     compatible,
                     breaking,
                 }) => {
-                    compatible_updates.insert(image.clone(), compatible);
-                    breaking_updates.insert(image, breaking);
+                    compatible_updates.push((image.clone(), compatible));
+                    breaking_updates.push((image, breaking));
                 }
             }
         }
 
         DockerfileReport {
-            no_updates,
-            compatible_updates,
-            breaking_updates,
-            failures,
+            report: Report {
+                no_updates,
+                compatible_updates,
+                breaking_updates,
+                failures,
+            },
         }
     }
 
     pub fn display_successes(&self) -> String {
         let breaking_updates = self
+            .report
             .breaking_updates
             .iter()
             .map(|(image, tag)| format!("{} -!> {}:{}", image, image.name, tag))
             .collect::<Vec<_>>();
         let compatible_updates = self
+            .report
             .compatible_updates
             .iter()
             .map(|(image, tag)| format!("{} -> {}:{}", image, image.name, tag))
             .collect::<Vec<_>>();
         let no_updates = self
+            .report
             .no_updates
             .iter()
-            .map(|image| image.to_string())
+            .map(|(image, ())| image.to_string())
             .collect::<Vec<_>>();
 
         let mut output = Vec::new();
@@ -212,6 +214,7 @@ where
 
     pub fn display_failures(&self) -> String {
         let failures = self
+            .report
             .failures
             .iter()
             .map(|(image, error)| format!("{}: {}", image, display_error(error)))
@@ -261,11 +264,16 @@ mod test {
 
         let result = DockerfileReport::from(input.into_iter());
         assert_eq!(
-            result.compatible_updates.into_iter().collect::<Vec<_>>(),
+            result
+                .report
+                .compatible_updates
+                .into_iter()
+                .collect::<Vec<_>>(),
             vec![(success_image, success_tag)],
         );
         assert_eq!(
             result
+                .report
                 .failures
                 .into_iter()
                 .map(|(image, _)| image)

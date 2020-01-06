@@ -5,8 +5,9 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::display_error;
-use crate::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
 use crate::image::Image;
+use crate::report::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
+use crate::report::Report;
 use crate::tag_fetcher::TagFetcher;
 
 #[derive(Debug, Deserialize)]
@@ -28,13 +29,11 @@ where
     T: std::fmt::Debug + TagFetcher,
     T::FetchError: 'static,
 {
-    pub no_updates: IndexMap<ServiceName, Vec<Image>>,
-    pub compatible_updates: IndexMap<ServiceName, IndexMap<Image, Tag>>,
-    pub breaking_updates: IndexMap<ServiceName, IndexMap<Image, Tag>>,
-    pub failures: DockerComposeFailures<T, E>,
+    #[allow(clippy::type_complexity)]
+    pub report: Report<ServiceName, Vec<(Image, Tag)>, DockerComposeResult<T, E>, Vec<(Image, ())>>,
 }
 
-type DockerComposeFailures<T, E> = IndexMap<ServiceName, Result<IndexMap<Image, CheckError<T>>, E>>;
+type DockerComposeResult<T, E> = Result<Vec<(Image, CheckError<T>)>, E>;
 
 impl<T, E> DockerComposeReport<T, E>
 where
@@ -49,45 +48,48 @@ where
             ),
         >,
     ) -> Self {
-        let mut no_updates = IndexMap::new();
-        let mut compatible_updates = IndexMap::new();
-        let mut breaking_updates = IndexMap::new();
-        let mut failures = IndexMap::new();
+        let mut no_updates = Vec::new();
+        let mut compatible_updates = Vec::new();
+        let mut breaking_updates = Vec::new();
+        let mut failures = Vec::new();
 
         for (service, result) in results {
             match result {
                 Ok(updates_result) => {
-                    let report = DockerfileReport::from(updates_result.into_iter());
+                    let report = DockerfileReport::from(updates_result.into_iter()).report;
 
                     if !report.no_updates.is_empty() {
-                        no_updates.insert(service.clone(), report.no_updates);
+                        no_updates.push((service.clone(), report.no_updates));
                     }
                     if !report.compatible_updates.is_empty() {
-                        compatible_updates.insert(service.clone(), report.compatible_updates);
+                        compatible_updates.push((service.clone(), report.compatible_updates));
                     }
                     if !report.breaking_updates.is_empty() {
-                        breaking_updates.insert(service.clone(), report.breaking_updates);
+                        breaking_updates.push((service.clone(), report.breaking_updates));
                     }
                     if !report.failures.is_empty() {
-                        failures.insert(service.clone(), Ok(report.failures));
+                        failures.push((service.clone(), Ok(report.failures)));
                     }
                 }
                 Err(error) => {
-                    failures.insert(service, Err(error));
+                    failures.push((service, Err(error)));
                 }
             }
         }
 
         DockerComposeReport {
-            no_updates,
-            compatible_updates,
-            breaking_updates,
-            failures,
+            report: Report {
+                no_updates,
+                compatible_updates,
+                breaking_updates,
+                failures,
+            },
         }
     }
 
     pub fn display_successes(&self) -> String {
         let breaking_updates = self
+            .report
             .breaking_updates
             .iter()
             .map(|(service, updates)| {
@@ -99,6 +101,7 @@ where
             })
             .collect::<Vec<_>>();
         let compatible_updates = self
+            .report
             .compatible_updates
             .iter()
             .map(|(service, updates)| {
@@ -110,10 +113,14 @@ where
             })
             .collect::<Vec<_>>();
         let no_updates = self
+            .report
             .no_updates
             .iter()
             .map(|(service, images)| {
-                let output = images.iter().map(|image| format!("  {}", image)).join("\n");
+                let output = images
+                    .iter()
+                    .map(|(image, ())| format!("  {}", image))
+                    .join("\n");
                 format!("{}:\n{}", service, output)
             })
             .collect::<Vec<_>>();
@@ -147,6 +154,7 @@ where
 
     pub fn display_failures(&self, custom_display_error: impl Fn(&E) -> String) -> String {
         let failures = self
+            .report
             .failures
             .iter()
             .map(|(service, error)| match error {
@@ -239,18 +247,15 @@ mod test {
 
         let result = DockerComposeReport::from(input.into_iter());
         assert_eq!(
-            result.compatible_updates,
+            result.report.compatible_updates,
             vec![(
                 ubuntu_service.clone(),
                 vec![(compatible_image, compatible_tag)]
-                    .into_iter()
-                    .collect::<IndexMap<_, _>>()
             )]
-            .into_iter()
-            .collect::<IndexMap<_, _>>(),
         );
         assert_eq!(
             result
+                .report
                 .failures
                 .into_iter()
                 .map(|(service, result)| {
@@ -268,15 +273,8 @@ mod test {
             vec![(ubuntu_service, Ok(vec![fail_image]))]
         );
         assert_eq!(
-            result.breaking_updates,
-            vec![(
-                alpine_service,
-                vec![(breaking_image, breaking_tag)]
-                    .into_iter()
-                    .collect::<IndexMap<_, _>>()
-            )]
-            .into_iter()
-            .collect::<IndexMap<_, _>>()
+            result.report.breaking_updates,
+            vec![(alpine_service, vec![(breaking_image, breaking_tag)])]
         )
     }
 }
