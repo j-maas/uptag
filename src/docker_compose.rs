@@ -5,8 +5,8 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::display_error;
+use crate::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
 use crate::image::Image;
-use crate::report::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
 use crate::report::Report;
 use crate::tag_fetcher::TagFetcher;
 

@@ -1,3 +1,5 @@
+pub mod docker_compose;
+pub mod dockerfile;
 pub mod image;
 pub mod matches;
 pub mod pattern_parser;
@@ -111,8 +113,8 @@ pub fn display_error(error: &impl std::error::Error) -> String {
 mod test {
     use super::*;
 
+    use crate::dockerfile::Dockerfile;
     use crate::image::ImageName;
-    use crate::report::Dockerfile;
     use crate::tag_fetcher::test::ArrayFetcher;
 
     #[test]

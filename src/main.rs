@@ -10,10 +10,10 @@ use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
 
+use updock::docker_compose::{DockerCompose, DockerComposeReport};
+use updock::dockerfile::{Dockerfile, DockerfileReport};
 use updock::image::ImageName;
-use updock::report::{
-    DockerCompose, DockerComposeReport, Dockerfile, DockerfileReport, UpdateLevel,
-};
+use updock::report::UpdateLevel;
 use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use updock::version_extractor::VersionExtractor;
 use updock::Updock;

@@ -1,9 +1,3 @@
-pub mod docker_compose;
-pub mod dockerfile;
-
-pub use docker_compose::{DockerCompose, DockerComposeReport};
-pub use dockerfile::{Dockerfile, DockerfileReport};
-
 #[derive(Debug)]
 pub struct Report<Key, Update, Error, Content = ()> {
     pub no_updates: Vec<(Key, Content)>,
