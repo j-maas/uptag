@@ -242,7 +242,6 @@ mod matches {
         breaking_degree: Option<regex::Match<'t>>,
     }
 
-    // TODO: Document that regexs can't contain `"`, not even escaped.
     lazy_static! {
         static ref STATEMENT: Regex = Regex::new(
             r#"(#\s*updock\s+pattern\s*:\s*"(?P<pattern>[^"]*)"(\s*,\s*breaking\s+degree\s*:\s*(?P<breaking_degree>\d+))?\s*\n+)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
