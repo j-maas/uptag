@@ -181,6 +181,7 @@ mod test {
 
     use crate::image::ImageName;
     use crate::tag_fetcher::test::ArrayFetcher;
+    use crate::tag_fetcher::CurrentTag;
     use crate::version_extractor::VersionExtractor;
     use crate::{PatternInfo, Update};
 
@@ -189,7 +190,7 @@ mod test {
         Result<
             Vec<(
                 Image,
-                Result<(Option<Update>, PatternInfo), CheckError<ArrayFetcher>>,
+                Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<ArrayFetcher>>,
             )>,
             (),
         >,
@@ -205,6 +206,7 @@ mod test {
         let compatible_tag = "14.05".to_string();
         let compatible_update = (
             Some(Update::Compatible(compatible_tag.clone())),
+            CurrentTag::Found,
             PatternInfo {
                 extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
                 breaking_degree: 1,
@@ -225,6 +227,7 @@ mod test {
         let breaking_tag = "4.0.2".to_string();
         let breaking_update = (
             Some(Update::Breaking(breaking_tag.clone())),
+            CurrentTag::Found,
             PatternInfo {
                 extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
                 breaking_degree: 1,
