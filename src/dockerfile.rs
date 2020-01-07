@@ -15,9 +15,9 @@ impl Dockerfile {
     pub fn check_input<'a, T>(
         updock: &'a Updock<T>,
         input: &'a str,
-    ) -> impl DockerfileResults<T> + 'a
+    ) -> impl DockerfileResults<T::FetchError> + 'a
     where
-        T: TagFetcher + std::fmt::Debug,
+        T: TagFetcher,
         T::FetchError: 'static,
     {
         Matches::iter(input).map(move |matches| {
@@ -44,7 +44,7 @@ impl Dockerfile {
         breaking_degree: usize,
     ) -> Result<(Version, PatternInfo), CheckError<T>>
     where
-        T: TagFetcher + std::fmt::Debug,
+        T: 'static + std::error::Error,
     {
         use CheckError::*;
 
@@ -70,17 +70,13 @@ impl Dockerfile {
 
 type Tag = String;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum CheckError<T>
 where
-    // The Debug trait is required here, because the Debug derive incorrectly infers trait bounds on `T`.
-    // For details, see https://github.com/rust-lang/rust/issues/26925
-    // Including this bound is the easiest workaround, since TagFetchers can easily derive Debug.
-    T: TagFetcher + std::fmt::Debug,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     #[error("Failed to fetch tags")]
-    FailedFetch(#[source] T::FetchError),
+    FailedFetch(#[source] T),
     #[error("The current tag `{tag}` does not match the required pattern `{pattern}`")]
     InvalidCurrentTag { tag: Tag, pattern: String },
     #[error("Failed to find version pattern")]
@@ -101,33 +97,29 @@ pub type DockerfileResult<T> = (
 // Trait alias
 pub trait DockerfileResults<T>: Iterator<Item = DockerfileResult<T>>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
 }
 
 impl<A, T> DockerfileResults<T> for A
 where
     A: Iterator<Item = DockerfileResult<T>>,
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
 }
 
 #[derive(Debug)]
 pub struct DockerfileReport<T>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
-    pub report: Report<Image, Tag, CheckError<T>>,
+    pub report: Report<Image, Tag, ReportError<T>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ReportError<T>
 where
-    T: std::fmt::Debug + TagFetcher + 'static,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     #[error("{0}")]
     CheckError(#[from] CheckError<T>),
@@ -142,14 +134,13 @@ where
 
 impl<T> DockerfileReport<T>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     pub fn from(results: impl DockerfileResults<T>) -> Self {
-        let (successes, failures): (Vec<_>, Vec<_>) =
+        let (successes, mut failures): (Vec<_>, Vec<_>) =
             results.partition_map(|(image, result)| match result {
                 Ok(info) => Either::Left((image, info)),
-                Err(error) => Either::Right((image, error)),
+                Err(error) => Either::Right((image, ReportError::CheckError(error))),
             });
 
         let mut no_updates = Vec::new();
@@ -157,6 +148,15 @@ where
         let mut breaking_updates = Vec::new();
 
         for (image, (maybe_update, current_tag_found, _)) in successes {
+            if let CurrentTag::NotEncountered { searched_amount } = current_tag_found {
+                failures.push((
+                    image.clone(),
+                    ReportError::CurrentTagNotEncountered {
+                        current_tag: image.tag.clone(),
+                        searched_amount,
+                    },
+                ))
+            }
             match maybe_update {
                 None => no_updates.push((image, ())),
                 Some(Update::Compatible(tag)) => {
@@ -419,12 +419,12 @@ mod test {
     use super::*;
 
     use crate::image::ImageName;
-    use crate::tag_fetcher::test::ArrayFetcher;
+    use crate::tag_fetcher::test::{ArrayFetcher, FetchError};
     use crate::tag_fetcher::CurrentTag;
 
     type TestDockerfileResults = Vec<(
         Image,
-        Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<ArrayFetcher>>,
+        Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<FetchError>>,
     )>;
 
     #[test]
@@ -612,6 +612,43 @@ mod test {
                 .map(|(image, _)| image)
                 .collect::<Vec<_>>(),
             vec![fail_image]
+        );
+    }
+
+    #[test]
+    fn missing_current_tag_with_updates_reported() {
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let tag = "14.05".to_string();
+        let update = (
+            Some(Update::Compatible(tag.clone())),
+            CurrentTag::NotEncountered {
+                searched_amount: 100,
+            },
+            PatternInfo {
+                extractor: VersionExtractor::parse("").unwrap(),
+                breaking_degree: 1,
+            },
+        );
+
+        let input: TestDockerfileResults = vec![(image.clone(), Ok(update))];
+
+        let result = DockerfileReport::from(input.into_iter());
+        assert_eq!(
+            result.report.compatible_updates,
+            vec![(image.clone(), tag)],
+        );
+        assert_eq!(
+            result.report.failures,
+            vec![(
+                image.clone(),
+                ReportError::CurrentTagNotEncountered {
+                    current_tag: image.tag,
+                    searched_amount: 100
+                }
+            )]
         );
     }
 }

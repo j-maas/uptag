@@ -26,7 +26,7 @@ impl Default for Updock<DockerHubTagFetcher> {
 
 impl<T> Updock<T>
 where
-    T: TagFetcher + std::fmt::Debug,
+    T: TagFetcher,
     T::FetchError: 'static,
 {
     pub fn new(fetcher: T) -> Updock<T> {

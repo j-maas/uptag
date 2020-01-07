@@ -58,13 +58,15 @@ pub trait TagFetcher {
                 !found
             })
             .take(self.max_search_amount())
-            .collect::<Result<_, _>>();
+            .collect::<Result<Vec<_>, _>>();
 
         tags_result.map(|tags| {
             let current_tag = if found {
                 CurrentTag::Found
             } else {
-                CurrentTag::NotEncountered
+                CurrentTag::NotEncountered {
+                    searched_amount: tags.len(),
+                }
             };
             (tags, current_tag)
         })
@@ -74,7 +76,7 @@ pub trait TagFetcher {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CurrentTag {
     Found,
-    NotEncountered,
+    NotEncountered { searched_amount: usize },
 }
 
 #[derive(Debug, Default)]
@@ -222,7 +224,7 @@ pub mod test {
 
     use crate::image::{Image, ImageName};
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq)]
     pub struct ArrayFetcher {
         content: HashMap<ImageName, Vec<Tag>>,
         max_search_amount: usize,
@@ -317,7 +319,7 @@ pub mod test {
                     "14.03".to_string(),
                     "13.03".to_string(),
                 ],
-                CurrentTag::NotEncountered
+                CurrentTag::NotEncountered { searched_amount: 4 }
             ))
         );
     }
@@ -345,7 +347,7 @@ pub mod test {
             result,
             Ok((
                 vec!["14.06".to_string(), "14.05".to_string(),],
-                CurrentTag::NotEncountered
+                CurrentTag::NotEncountered { searched_amount: 2 }
             ))
         );
     }

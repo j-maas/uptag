@@ -5,10 +5,9 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::display_error;
-use crate::dockerfile::{CheckError, DockerfileReport, DockerfileResult};
+use crate::dockerfile::{DockerfileReport, DockerfileResult, ReportError};
 use crate::image::Image;
 use crate::report::Report;
-use crate::tag_fetcher::TagFetcher;
 
 #[derive(Debug, Deserialize)]
 pub struct DockerCompose {
@@ -26,19 +25,17 @@ type Tag = String;
 // Trait alias
 pub struct DockerComposeReport<T, E>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     #[allow(clippy::type_complexity)]
     pub report: Report<ServiceName, Vec<(Image, Tag)>, DockerComposeResult<T, E>, Vec<(Image, ())>>,
 }
 
-type DockerComposeResult<T, E> = Result<Vec<(Image, CheckError<T>)>, E>;
+type DockerComposeResult<T, E> = Result<Vec<(Image, ReportError<T>)>, E>;
 
 impl<T, E> DockerComposeReport<T, E>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     pub fn from(
         results: impl Iterator<
@@ -179,8 +176,9 @@ where
 mod test {
     use super::*;
 
+    use crate::dockerfile::CheckError;
     use crate::image::ImageName;
-    use crate::tag_fetcher::test::ArrayFetcher;
+    use crate::tag_fetcher::test::FetchError;
     use crate::tag_fetcher::CurrentTag;
     use crate::version_extractor::VersionExtractor;
     use crate::{PatternInfo, Update};
@@ -190,7 +188,7 @@ mod test {
         Result<
             Vec<(
                 Image,
-                Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<ArrayFetcher>>,
+                Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<FetchError>>,
             )>,
             (),
         >,
