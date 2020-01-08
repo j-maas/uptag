@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 use log;
 use reqwest;
 use serde::Deserialize;
-use thiserror::Error;
 
 use crate::image::ImageName;
 
@@ -46,7 +45,7 @@ pub trait TagFetcher {
         &self,
         image: &ImageName,
         tag: &str,
-    ) -> Result<Vec<Tag>, FetchUntilError<Self::FetchError>> {
+    ) -> Result<(Vec<Tag>, CurrentTag), Self::FetchError> {
         let mut found = false;
         let tags_result = self
             .fetch(image)
@@ -59,38 +58,25 @@ pub trait TagFetcher {
                 !found
             })
             .take(self.max_search_amount())
-            .map(|result| result.map_err(FetchUntilError::FetchError))
-            .collect::<Result<_, _>>();
+            .collect::<Result<Vec<_>, _>>();
 
-        tags_result.and_then(|tags| {
-            if found {
-                Ok(tags)
+        tags_result.map(|tags| {
+            let current_tag = if found {
+                CurrentTag::Found
             } else {
-                Err(FetchUntilError::UnfoundTag {
-                    tag: tag.to_string(),
-                    max_search_amount: self.max_search_amount(),
-                })
-            }
+                CurrentTag::NotEncountered {
+                    searched_amount: tags.len(),
+                }
+            };
+            (tags, current_tag)
         })
     }
 }
 
-/// Error from [`fetch_until`].
-///
-/// [`fetch_until`]: trait.TagFetcher.html#method.fetch_until
-#[derive(Error, Debug, PartialEq)]
-pub enum FetchUntilError<E>
-where
-    E: 'static + std::error::Error,
-{
-    /// Indicates that an error occurred while fetching new tags.
-    #[error("{0}")]
-    FetchError(#[from] E),
-    #[error(
-        "Failed to find tag `{tag}` in the latest {max_search_amount} tags (there might be updates in older tags beyond this search limit)"
-    )]
-    /// Indicates that the `tag` could not be found in the latest `max_search_amount` tags.
-    UnfoundTag { tag: Tag, max_search_amount: usize },
+#[derive(Debug, PartialEq, Eq)]
+pub enum CurrentTag {
+    Found,
+    NotEncountered { searched_amount: usize },
 }
 
 #[derive(Debug, Default)]
@@ -232,11 +218,13 @@ impl Iterator for DockerHubTagIterator {
 pub mod test {
     use super::*;
 
-    use crate::image::{Image, ImageName};
-
     use std::collections::HashMap;
 
-    #[derive(Debug)]
+    use thiserror::Error;
+
+    use crate::image::{Image, ImageName};
+
+    #[derive(Debug, PartialEq)]
     pub struct ArrayFetcher {
         content: HashMap<ImageName, Vec<Tag>>,
         max_search_amount: usize,
@@ -296,11 +284,17 @@ pub mod test {
         );
 
         let result = fetcher.fetch_until(&image.name, &image.tag);
-        assert_eq!(result, Ok(vec!["14.06".to_string(), "14.05".to_string(),]));
+        assert_eq!(
+            result,
+            Ok((
+                vec!["14.06".to_string(), "14.05".to_string(),],
+                CurrentTag::Found
+            ))
+        );
     }
 
     #[test]
-    fn fails_if_tag_is_not_found() {
+    fn signals_missing_tag() {
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
@@ -318,15 +312,20 @@ pub mod test {
         let result = fetcher.fetch_until(&image.name, &image.tag);
         assert_eq!(
             result,
-            Err(FetchUntilError::UnfoundTag {
-                tag: image.tag,
-                max_search_amount: fetcher.max_search_amount()
-            })
+            Ok((
+                vec![
+                    "14.06".to_string(),
+                    "14.05".to_string(),
+                    "14.03".to_string(),
+                    "13.03".to_string(),
+                ],
+                CurrentTag::NotEncountered { searched_amount: 4 }
+            ))
         );
     }
 
     #[test]
-    fn fails_if_tag_is_not_found_in_search_limit() {
+    fn signals_missing_tag_if_outside_search_limit() {
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
@@ -346,10 +345,10 @@ pub mod test {
         let result = fetcher.fetch_until(&image.name, &image.tag);
         assert_eq!(
             result,
-            Err(FetchUntilError::UnfoundTag {
-                tag: image.tag,
-                max_search_amount: fetcher.max_search_amount()
-            })
+            Ok((
+                vec!["14.06".to_string(), "14.05".to_string(),],
+                CurrentTag::NotEncountered { searched_amount: 2 }
+            ))
         );
     }
 
@@ -367,9 +366,9 @@ pub mod test {
         let result = fetcher.fetch_until(&image.name, &image.tag);
         assert_eq!(
             result,
-            Err(FetchUntilError::FetchError(FetchError {
+            Err(FetchError {
                 image_name: image.name.to_string()
-            }))
+            })
         );
     }
 }

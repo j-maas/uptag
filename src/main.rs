@@ -136,7 +136,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let updock = Updock::default();
     let updates = Dockerfile::check_input(&updock, &input);
 
-    let dockerfile_report = DockerfileReport::from(updates);
+    let dockerfile_report = DockerfileReport::<reqwest::Error>::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
     if opts.json {

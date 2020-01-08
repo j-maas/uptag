@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::image::Image;
 use crate::report::Report;
-use crate::tag_fetcher::{FetchUntilError, TagFetcher};
+use crate::tag_fetcher::{CurrentTag, TagFetcher};
 use crate::version_extractor;
 use crate::version_extractor::VersionExtractor;
 use crate::{display_error, PatternInfo, Update, Updock, Version};
@@ -15,9 +15,9 @@ impl Dockerfile {
     pub fn check_input<'a, T>(
         updock: &'a Updock<T>,
         input: &'a str,
-    ) -> impl DockerfileResults<T> + 'a
+    ) -> impl DockerfileResults<T::FetchError> + 'a
     where
-        T: TagFetcher + std::fmt::Debug,
+        T: TagFetcher,
         T::FetchError: 'static,
     {
         Matches::iter(input).map(move |matches| {
@@ -31,7 +31,7 @@ impl Dockerfile {
                 updock
                     .find_update(&image, &current_version, &pattern_info)
                     .map_err(CheckError::FailedFetch)
-                    .map(|maybe_update| (maybe_update, pattern_info))
+                    .map(|(maybe_update, current_tag)| (maybe_update, current_tag, pattern_info))
             });
 
             (image, result)
@@ -44,7 +44,7 @@ impl Dockerfile {
         breaking_degree: usize,
     ) -> Result<(Version, PatternInfo), CheckError<T>>
     where
-        T: TagFetcher + std::fmt::Debug,
+        T: 'static + std::error::Error,
     {
         use CheckError::*;
 
@@ -70,17 +70,13 @@ impl Dockerfile {
 
 type Tag = String;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum CheckError<T>
 where
-    // The Debug trait is required here, because the Debug derive incorrectly infers trait bounds on `T`.
-    // For details, see https://github.com/rust-lang/rust/issues/26925
-    // Including this bound is the easiest workaround, since TagFetchers can easily derive Debug.
-    T: TagFetcher + std::fmt::Debug,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     #[error("Failed to fetch tags")]
-    FailedFetch(#[source] FetchUntilError<T::FetchError>),
+    FailedFetch(#[source] T),
     #[error("The current tag `{tag}` does not match the required pattern `{pattern}`")]
     InvalidCurrentTag { tag: Tag, pattern: String },
     #[error("Failed to find version pattern")]
@@ -93,50 +89,74 @@ where
     },
 }
 
-pub type DockerfileResult<T> = (Image, Result<(Option<Update>, PatternInfo), CheckError<T>>);
+pub type DockerfileResult<T> = (
+    Image,
+    Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<T>>,
+);
 
 // Trait alias
 pub trait DockerfileResults<T>: Iterator<Item = DockerfileResult<T>>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
 }
 
 impl<A, T> DockerfileResults<T> for A
 where
     A: Iterator<Item = DockerfileResult<T>>,
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
 }
 
 #[derive(Debug)]
 pub struct DockerfileReport<T>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
-    pub report: Report<Image, Tag, CheckError<T>>,
+    pub report: Report<Image, Tag, ReportError<T>>,
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum ReportError<T>
+where
+    T: 'static + std::error::Error,
+{
+    #[error("{0}")]
+    CheckError(#[from] CheckError<T>),
+    #[error(
+        "Failed to find the current tag `{current_tag}` in the latest {searched_amount} tags (either the tag is missing, or it might be in older tags beyond the search limit)" 
+    )]
+    CurrentTagNotEncountered {
+        current_tag: Tag,
+        searched_amount: usize,
+    },
 }
 
 impl<T> DockerfileReport<T>
 where
-    T: std::fmt::Debug + TagFetcher,
-    T::FetchError: 'static,
+    T: 'static + std::error::Error,
 {
     pub fn from(results: impl DockerfileResults<T>) -> Self {
-        let (successes, failures): (Vec<_>, Vec<_>) =
+        let (successes, mut failures): (Vec<_>, Vec<_>) =
             results.partition_map(|(image, result)| match result {
                 Ok(info) => Either::Left((image, info)),
-                Err(error) => Either::Right((image, error)),
+                Err(error) => Either::Right((image, ReportError::CheckError(error))),
             });
 
         let mut no_updates = Vec::new();
         let mut compatible_updates = Vec::new();
         let mut breaking_updates = Vec::new();
 
-        for (image, (maybe_update, _)) in successes {
+        for (image, (maybe_update, current_tag_found, _)) in successes {
+            if let CurrentTag::NotEncountered { searched_amount } = current_tag_found {
+                failures.push((
+                    image.clone(),
+                    ReportError::CurrentTagNotEncountered {
+                        current_tag: image.tag.clone(),
+                        searched_amount,
+                    },
+                ))
+            }
             match maybe_update {
                 None => no_updates.push((image, ())),
                 Some(Update::Compatible(tag)) => {
@@ -399,12 +419,154 @@ mod test {
     use super::*;
 
     use crate::image::ImageName;
-    use crate::tag_fetcher::test::ArrayFetcher;
+    use crate::tag_fetcher::test::{ArrayFetcher, FetchError};
+    use crate::tag_fetcher::CurrentTag;
 
     type TestDockerfileResults = Vec<(
         Image,
-        Result<(Option<Update>, PatternInfo), CheckError<ArrayFetcher>>,
+        Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<FetchError>>,
     )>;
+
+    #[test]
+    fn finds_compatible_update_from_string() {
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let fetcher = ArrayFetcher::with(
+            image.name.clone(),
+            vec![
+                "14.12".to_string(),
+                "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let results = Dockerfile::check_input(&updock, input);
+        let actual_updates = results
+            .filter_map(|(image_name, result)| {
+                result
+                    .ok()
+                    .map(|(maybe_update, _, _)| (image_name, maybe_update))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actual_updates,
+            vec![(image, Some(Update::Compatible("14.12".to_string())))]
+        );
+    }
+
+    #[test]
+    fn finds_breaking_update_from_string() {
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let fetcher = ArrayFetcher::with(
+            image.name.clone(),
+            vec![
+                "15.01".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let results = Dockerfile::check_input(&updock, input);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result
+                    .ok()
+                    .map(|(maybe_update, _, _)| (image, maybe_update))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actual_updates,
+            vec![(image, Some(Update::Breaking("15.01".to_string())))]
+        );
+    }
+
+    #[test]
+    fn finds_compatible_and_breaking_update_from_string() {
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let fetcher = ArrayFetcher::with(
+            image.name.clone(),
+            vec![
+                "15.01".to_string(),
+                "14.12".to_string(),
+                "14.05".to_string(),
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let results = Dockerfile::check_input(&updock, input);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result
+                    .ok()
+                    .map(|(maybe_update, _, _)| (image, maybe_update))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actual_updates,
+            vec![(
+                image,
+                Some(Update::Both {
+                    compatible: "14.12".to_string(),
+                    breaking: "15.01".to_string()
+                })
+            )]
+        );
+    }
+
+    #[test]
+    fn ignores_lesser_versions_from_string() {
+        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let fetcher = ArrayFetcher::with(
+            image.name.clone(),
+            vec![
+                "14.04".to_string(),
+                "14.03".to_string(),
+                "13.03".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let results = Dockerfile::check_input(&updock, input);
+        let actual_updates = results
+            .filter_map(|(image, result)| {
+                result
+                    .ok()
+                    .map(|(maybe_update, _, _)| (image, maybe_update))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual_updates, vec![(image, None)]);
+    }
 
     #[test]
     fn generates_dockerfile_report() {
@@ -415,6 +577,7 @@ mod test {
         let success_tag = "14.05".to_string();
         let success_update = (
             Some(Update::Compatible(success_tag.clone())),
+            CurrentTag::Found,
             PatternInfo {
                 extractor: VersionExtractor::parse("").unwrap(),
                 breaking_degree: 1,
@@ -449,6 +612,43 @@ mod test {
                 .map(|(image, _)| image)
                 .collect::<Vec<_>>(),
             vec![fail_image]
+        );
+    }
+
+    #[test]
+    fn missing_current_tag_with_updates_reported() {
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let tag = "14.05".to_string();
+        let update = (
+            Some(Update::Compatible(tag.clone())),
+            CurrentTag::NotEncountered {
+                searched_amount: 100,
+            },
+            PatternInfo {
+                extractor: VersionExtractor::parse("").unwrap(),
+                breaking_degree: 1,
+            },
+        );
+
+        let input: TestDockerfileResults = vec![(image.clone(), Ok(update))];
+
+        let result = DockerfileReport::from(input.into_iter());
+        assert_eq!(
+            result.report.compatible_updates,
+            vec![(image.clone(), tag)],
+        );
+        assert_eq!(
+            result.report.failures,
+            vec![(
+                image.clone(),
+                ReportError::CurrentTagNotEncountered {
+                    current_tag: image.tag,
+                    searched_amount: 100
+                }
+            )]
         );
     }
 }
