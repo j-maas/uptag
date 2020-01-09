@@ -96,10 +96,6 @@ impl ExitCode {
         }
     }
 
-    fn merge(&mut self, other: &ExitCode) {
-        self.0 = std::cmp::max(self.0, other.0)
-    }
-
     fn exit(&self) -> ! {
         std::process::exit(self.0)
     }
