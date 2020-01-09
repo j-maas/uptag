@@ -181,8 +181,16 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
 }
 
 fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
-    let compose_file = fs::File::open(&opts.file)
-        .with_context(|| format!("Failed to read file `{}`", opts.file.display()))?;
+    let compose_file_path = opts
+        .file
+        .canonicalize()
+        .with_context(|| format!("Failed to find file `{}`", opts.file.display()))?;
+    let compose_file = fs::File::open(&compose_file_path).with_context(|| {
+        format!(
+            "Failed to read file `{}`",
+            display_canon(&compose_file_path)
+        )
+    })?;
     let compose: DockerCompose =
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
 
@@ -229,11 +237,16 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                 "failures": failures,
                 "no_updates": report.no_updates,
                 "compatible_updates": report.compatible_updates,
-                "breaking_updates": report.breaking_updates
+                "breaking_updates": report.breaking_updates,
+                "path": display_canon(&compose_file_path)
             }))
             .context("Failed to serialize result")?
         );
     } else {
+        println!(
+            "Report for Docker Compose file at `{}`:\n",
+            display_canon(&compose_file_path)
+        );
         if !docker_compose_report.report.failures.is_empty() {
             eprintln!(
                 "{}",
