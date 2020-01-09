@@ -1,6 +1,4 @@
 use std::fs;
-use std::io;
-use std::io::prelude::*;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -130,12 +128,8 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
 }
 
 fn check(opts: CheckOpts) -> Result<ExitCode> {
-    let stdin = io::stdin();
-    let mut input = String::new();
-    stdin
-        .lock()
-        .read_to_string(&mut input)
-        .context("Failed to read from stdin")?;
+    let input = fs::read_to_string(&opts.file)
+        .with_context(|| format!("Failed to read file {}", opts.file.display()))?;
 
     let updock = Updock::default();
     let updates = Dockerfile::check_input(&updock, &input);
