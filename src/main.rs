@@ -36,8 +36,10 @@ struct FetchOpts {
 
 #[derive(Debug, StructOpt)]
 struct CheckOpts {
-    #[structopt(short, long)]
-    json: bool,
+    #[structopt(parse(from_os_str))]
+    file: PathBuf,
+    #[structopt(flatten)]
+    check_flags: CheckFlags,
 }
 
 #[derive(Debug, StructOpt)]
@@ -45,7 +47,13 @@ struct CheckComposeOpts {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
     #[structopt(flatten)]
-    check_opts: CheckOpts,
+    check_flags: CheckFlags,
+}
+
+#[derive(Debug, StructOpt)]
+struct CheckFlags {
+    #[structopt(short, long)]
+    json: bool,
 }
 
 fn main() {
@@ -139,7 +147,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let dockerfile_report = DockerfileReport::<reqwest::Error>::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
-    if opts.json {
+    if opts.check_flags.json {
         let report = dockerfile_report.report;
         let failures = report
             .failures
@@ -194,7 +202,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     let mut exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
-    if opts.check_opts.json {
+    if opts.check_flags.json {
         let report = docker_compose_report.report;
         let failures = report
             .failures
