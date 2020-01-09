@@ -128,8 +128,12 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
 }
 
 fn check(opts: CheckOpts) -> Result<ExitCode> {
-    let input = fs::read_to_string(&opts.file)
-        .with_context(|| format!("Failed to read file {}", opts.file.display()))?;
+    let file_path = opts
+        .file
+        .canonicalize()
+        .with_context(|| format!("Failed to find file `{}`", opts.file.display()))?;
+    let input = fs::read_to_string(&file_path)
+        .with_context(|| format!("Failed to read file `{}`", display_path(&file_path)))?;
 
     let updock = Updock::default();
     let updates = Dockerfile::check_input(&updock, &input);
@@ -153,6 +157,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
+                "path": display_path(&file_path),
                 "failures": failures,
                 "no_updates": report.no_updates,
                 "compatible_updates": report.compatible_updates,
@@ -161,6 +166,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
             .context("Failed to serialize result")?
         );
     } else {
+        println!("Report for Dockerfile at `{}`:\n", display_path(&file_path));
         if !dockerfile_report.report.failures.is_empty() {
             eprintln!("{}", dockerfile_report.display_failures());
             println!();
@@ -236,4 +242,16 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     }
 
     Ok(exit_code)
+}
+
+fn display_path(path: &std::path::Path) -> String {
+    let mut output = path.display().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        // Removes the extended-length prefix.
+        // See https://github.com/rust-lang/rust/issues/42869 for details.
+        output.replace_range(..4, "");
+    }
+    output
 }
