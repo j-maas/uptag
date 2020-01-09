@@ -45,7 +45,7 @@ where
             .filter_map(|tag| extractor.extract_from(&tag).map(|version| (tag, version)))
             .filter(|(_, version)| current_version < version)
             .partition(|(_, version)| {
-                current_version.is_breaking_update_to(version, extractor.pattern.breaking_degree())
+                current_version.is_breaking_update_to(version, extractor.breaking_degree())
             });
 
         let max_compatible = compatible

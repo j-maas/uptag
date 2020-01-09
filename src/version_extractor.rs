@@ -6,7 +6,7 @@ use pattern_parser::Pattern;
 
 #[derive(Debug, Clone)]
 pub struct VersionExtractor {
-    pub pattern: Pattern,
+    pattern: Pattern,
     regex: Regex,
 }
 
@@ -55,6 +55,10 @@ impl VersionExtractor {
         S: 'a + AsRef<str>,
     {
         Ok(VersionExtractor::new(Pattern::parse(pattern.as_ref())?))
+    }
+
+    pub fn breaking_degree(&self) -> usize {
+        self.pattern.breaking_degree()
     }
 
     pub fn matches<T>(&self, candidate: T) -> bool
