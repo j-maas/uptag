@@ -100,7 +100,7 @@ type Tag = String;
 
 impl DockerHubTagFetcher {
     pub fn new() -> Self {
-        DockerHubTagFetcher { search_limit: 500 }
+        DockerHubTagFetcher { search_limit: 100 }
     }
 
     pub fn with_search_limit(search_limit: usize) -> Self {
