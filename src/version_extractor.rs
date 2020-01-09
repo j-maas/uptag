@@ -165,7 +165,7 @@ mod pattern_parser {
     use itertools::Itertools;
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while1};
-    use nom::combinator::{all_consuming, map, opt, recognize};
+    use nom::combinator::{all_consuming, opt, recognize};
     use nom::error::{ParseError, VerboseError};
     use nom::multi::many0;
     use nom::sequence::tuple;
@@ -173,27 +173,11 @@ mod pattern_parser {
     use regex::Regex;
     use thiserror::Error;
 
-    pub fn pattern<'a, E>(i: &'a str) -> IResult<&'a str, Pattern, E>
-    where
-        E: ParseError<&'a str>,
-    {
-        map(
-            all_consuming(tuple((
-                opt(outer_literal),
-                many0(alt((inner_literal, version_part))),
-            ))),
-            |(maybe_first, mut rest)| {
-                if let Some(first) = maybe_first {
-                    rest.insert(0, first);
-                };
-
-                Pattern(rest)
-            },
-        )(i)
-    }
-
     #[derive(Debug, PartialEq, Eq, Clone)]
-    pub struct Pattern(Vec<PatternPart>);
+    pub struct Pattern {
+        parts: Vec<PatternPart>,
+        breaking_degree: usize,
+    }
 
     impl Pattern {
         pub fn parse(i: &str) -> Result<Pattern, Error> {
@@ -205,7 +189,7 @@ mod pattern_parser {
         pub fn regex(&self) -> Regex {
             use PatternPart::*;
             let inner_regex = self
-                .0
+                .parts
                 .iter()
                 .map(|part| match part {
                     Literal(literal) => Self::escape_literal(&literal),
@@ -244,7 +228,7 @@ mod pattern_parser {
             write!(
                 f,
                 "{}",
-                self.0
+                self.parts
                     .iter()
                     .map(|part| {
                         use PatternPart::*;
@@ -262,6 +246,52 @@ mod pattern_parser {
     pub enum PatternPart {
         VersionPart,
         Literal(String),
+    }
+
+    pub fn pattern<'a, E>(i: &'a str) -> IResult<&'a str, Pattern, E>
+    where
+        E: ParseError<&'a str>,
+    {
+        let (o, (maybe_first, mut breaking, mut compatible)) = all_consuming(tuple((
+            opt(outer_literal),
+            breaking_parts,
+            compatible_parts,
+        )))(i)?;
+
+        let breaking_degree = breaking
+            .iter()
+            .filter(|part| match part {
+                PatternPart::VersionPart => true,
+                _ => false,
+            })
+            .count();
+        let mut parts = match maybe_first {
+            Some(first) => vec![first],
+            None => vec![],
+        };
+        parts.append(&mut breaking);
+        parts.append(&mut compatible);
+        Ok((
+            o,
+            Pattern {
+                parts,
+                breaking_degree,
+            },
+        ))
+    }
+
+    pub fn breaking_parts<'a, E>(i: &'a str) -> IResult<&'a str, Vec<PatternPart>, E>
+    where
+        E: ParseError<&'a str>,
+    {
+        many0(alt((inner_literal, breaking_version_part)))(i)
+    }
+
+    pub fn compatible_parts<'a, E>(i: &'a str) -> IResult<&'a str, Vec<PatternPart>, E>
+    where
+        E: ParseError<&'a str>,
+    {
+        many0(alt((inner_literal, compatible_version_part)))(i)
     }
 
     pub fn inner_literal<'a, E>(i: &'a str) -> IResult<&'a str, PatternPart, E>
@@ -291,7 +321,15 @@ mod pattern_parser {
         c.is_ascii_alphanumeric() || c == '_'
     }
 
-    pub fn version_part<'a, E>(i: &'a str) -> IResult<&'a str, PatternPart, E>
+    pub fn breaking_version_part<'a, E>(i: &'a str) -> IResult<&'a str, PatternPart, E>
+    where
+        E: ParseError<&'a str>,
+    {
+        let (o, _) = tag("<!>")(i)?;
+        Ok((o, PatternPart::VersionPart))
+    }
+
+    pub fn compatible_version_part<'a, E>(i: &'a str) -> IResult<&'a str, PatternPart, E>
     where
         E: ParseError<&'a str>,
     {
@@ -307,7 +345,10 @@ mod pattern_parser {
         fn parses_literal() {
             assert_eq!(
                 Pattern::parse("1.2.3"),
-                Ok(Pattern(vec![PatternPart::Literal("1.2.3".to_string())]))
+                Ok(Pattern {
+                    parts: vec![PatternPart::Literal("1.2.3".to_string())],
+                    breaking_degree: 0
+                })
             );
         }
 
@@ -315,7 +356,10 @@ mod pattern_parser {
         fn parses_version_part() {
             assert_eq!(
                 Pattern::parse("<>"),
-                Ok(Pattern(vec![PatternPart::VersionPart]))
+                Ok(Pattern {
+                    parts: vec![PatternPart::VersionPart],
+                    breaking_degree: 0
+                })
             )
         }
 
@@ -323,19 +367,22 @@ mod pattern_parser {
         fn parses_semver() {
             use PatternPart::*;
             assert_eq!(
-                Pattern::parse("<>.<>.<>"),
-                Ok(Pattern(vec![
-                    VersionPart,
-                    Literal(".".to_string()),
-                    VersionPart,
-                    Literal(".".to_string()),
-                    VersionPart
-                ]))
+                Pattern::parse("<!>.<>.<>"),
+                Ok(Pattern {
+                    parts: vec![
+                        VersionPart,
+                        Literal(".".to_string()),
+                        VersionPart,
+                        Literal(".".to_string()),
+                        VersionPart
+                    ],
+                    breaking_degree: 1
+                })
             )
         }
 
         #[test]
-        fn rejects_invalid_pattern() {
+        fn rejects_invalid_characters() {
             assert_eq!(
                 pattern(r"(\d+)\.(\d+)"),
                 Err(nom::Err::Error((
@@ -343,6 +390,11 @@ mod pattern_parser {
                     nom::error::ErrorKind::Eof
                 )))
             );
+        }
+
+        #[test]
+        fn rejects_invalid_break_indicator() {
+            assert_eq!(pattern(r"<>.<!>.<>"), Err(nom::Err::Error(())))
         }
     }
 }
