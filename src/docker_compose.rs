@@ -105,11 +105,11 @@ where
             .breaking_updates
             .iter()
             .map(|(service, service_path, updates)| {
-                let output = updates
-                    .iter()
-                    .map(|(image, update)| format!("  {} -!> {}:{}", image, image.name, update))
-                    .join("\n");
-                format!("{} (from file `{}`):\n{}", service, service_path, output)
+                [
+                    display_service(service, service_path),
+                    display_updates(updates.iter()),
+                ]
+                .join("\n")
             })
             .collect::<Vec<_>>();
         let compatible_updates = self
@@ -117,11 +117,11 @@ where
             .compatible_updates
             .iter()
             .map(|(service, service_path, updates)| {
-                let output = updates
-                    .iter()
-                    .map(|(image, update)| format!("  {} -> {}:{}", image, image.name, update))
-                    .join("\n");
-                format!("{} (from file `{}`):\n{}", service, service_path, output)
+                [
+                    display_service(service, service_path),
+                    display_updates(updates.iter()),
+                ]
+                .join("\n")
             })
             .collect::<Vec<_>>();
         let no_updates = self
@@ -129,8 +129,11 @@ where
             .no_updates
             .iter()
             .map(|(service, service_path, images)| {
-                let output = images.iter().map(|image| format!("  {}", image)).join("\n");
-                format!("{} (from file `{}`):\n{}", service, service_path, output)
+                [
+                    display_service(service, service_path),
+                    display_images(images.iter()),
+                ]
+                .join("\n")
             })
             .collect::<Vec<_>>();
 
@@ -140,25 +143,25 @@ where
             output.push(format!(
                 "{} with breaking update:\n{}",
                 breaking_updates.len(),
-                breaking_updates.join("\n")
+                breaking_updates.join("\n\n")
             ));
         }
         if !compatible_updates.is_empty() {
             output.push(format!(
                 "{} with compatible update:\n{}",
                 compatible_updates.len(),
-                compatible_updates.join("\n")
+                compatible_updates.join("\n\n")
             ));
         }
         if !no_updates.is_empty() {
             output.push(format!(
                 "{} with no updates:\n{}",
                 no_updates.len(),
-                no_updates.join("\n")
+                no_updates.join("\n\n")
             ));
         }
 
-        output.join("\n\n")
+        output.join("\n\n\n")
     }
 
     pub fn display_failures(&self, custom_display_error: impl Fn(&E) -> String) -> String {
@@ -171,17 +174,40 @@ where
                     let errors = check_errors
                         .iter()
                         .map(|(image, check_error)| {
-                            format!("  {}: {}", image, display_error(check_error))
+                            let image_display = display_image(image);
+                            format!("{}: {}", image_display, display_error(check_error))
                         })
                         .join("\n");
-                    format!("{} (from file `{}`):\n{}", service, service_path, errors)
+                    [display_service(service, service_path), errors].join("\n")
                 }
                 Err(error) => format!("{}: {}", service, custom_display_error(error)),
             })
             .collect::<Vec<_>>();
 
-        format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
+        format!(
+            "{} with failure:\n{}",
+            failures.len(),
+            failures.join("\n\n")
+        )
     }
+}
+
+fn display_service(service: &str, service_path: &str) -> String {
+    format!("  {} (at `{}`):", service, service_path)
+}
+
+fn display_updates<'a>(updates: impl Iterator<Item = &'a (Image, String)>) -> String {
+    updates
+        .map(|(image, update)| format!("  - {} -!> {}:{}", image, image.name, update))
+        .join("\n")
+}
+
+fn display_images<'a>(images: impl Iterator<Item = &'a Image>) -> String {
+    images.map(display_image).join("\n")
+}
+
+fn display_image(image: &Image) -> String {
+    format!("  - {}", image)
 }
 
 #[cfg(test)]
