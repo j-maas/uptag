@@ -6,7 +6,7 @@ use crate::report::Report;
 use crate::tag_fetcher::{CurrentTag, TagFetcher};
 use crate::version_extractor;
 use crate::version_extractor::VersionExtractor;
-use crate::{display_error, PatternInfo, Update, Updock, Version};
+use crate::{display_error, Update, Updock, Version};
 use matches::Matches;
 
 pub struct Dockerfile {}
@@ -22,17 +22,16 @@ impl Dockerfile {
     {
         Matches::iter(input).map(move |matches| {
             let image = matches.image();
-            let result = Self::extract_check_info(
-                &image.tag,
-                &matches.pattern().map(|m| m.as_str()),
-                matches.breaking_degree().unwrap_or(0),
-            )
-            .and_then(|(current_version, pattern_info)| {
-                updock
-                    .find_update(&image, &current_version, &pattern_info)
-                    .map_err(CheckError::FailedFetch)
-                    .map(|(maybe_update, current_tag)| (maybe_update, current_tag, pattern_info))
-            });
+            let result =
+                Self::extract_check_info(&image.tag, &matches.pattern().map(|m| m.as_str()))
+                    .and_then(|(current_version, pattern_info)| {
+                        updock
+                            .find_update(&image, &current_version, &pattern_info)
+                            .map_err(CheckError::FailedFetch)
+                            .map(|(maybe_update, current_tag)| {
+                                (maybe_update, current_tag, pattern_info)
+                            })
+                    });
 
             (image, result)
         })
@@ -41,8 +40,7 @@ impl Dockerfile {
     fn extract_check_info<T>(
         tag: &str,
         pattern: &Option<&str>,
-        breaking_degree: usize,
-    ) -> Result<(Version, PatternInfo), CheckError<T>>
+    ) -> Result<(Version, VersionExtractor), CheckError<T>>
     where
         T: 'static + std::error::Error,
     {
@@ -57,14 +55,7 @@ impl Dockerfile {
             tag: tag.to_string(),
             pattern: extractor.to_string(),
         })?;
-        let breaking_degree = breaking_degree;
-        Ok((
-            current_version,
-            PatternInfo {
-                extractor,
-                breaking_degree,
-            },
-        ))
+        Ok((current_version, extractor))
     }
 }
 
@@ -91,7 +82,7 @@ where
 
 pub type DockerfileResult<T> = (
     Image,
-    Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<T>>,
+    Result<(Option<Update>, CurrentTag, VersionExtractor), CheckError<T>>,
 );
 
 // Trait alias
@@ -259,12 +250,11 @@ mod matches {
         image: regex::Match<'t>,
         tag: regex::Match<'t>,
         pattern: Option<regex::Match<'t>>,
-        breaking_degree: Option<regex::Match<'t>>,
     }
 
     lazy_static! {
         static ref STATEMENT: Regex = Regex::new(
-            r#"(#\s*updock\s+pattern\s*:\s*"(?P<pattern>[^"]*)"(\s*,\s*breaking\s+degree\s*:\s*(?P<breaking_degree>\d+))?\s*\n+)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
+            r#"(#\s*updock\s+--pattern\s+"(?P<pattern>[^"]*)"\s*\n[\s\n]*)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
         ).unwrap();
     }
 
@@ -285,7 +275,6 @@ mod matches {
                 image: captures.name("image").unwrap(),
                 tag: captures.name("tag").unwrap(),
                 pattern: captures.name("pattern"),
-                breaking_degree: captures.name("breaking_degree"),
             }
         }
 
@@ -307,10 +296,6 @@ mod matches {
         pub fn extractor(&self) -> Option<Result<VersionExtractor, version_extractor::Error>> {
             self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
         }
-
-        pub fn breaking_degree(&self) -> Option<usize> {
-            self.breaking_degree.map(|m| m.as_str().parse().unwrap())
-        }
     }
 
     impl<'t> Tagged for Matches<'t> {
@@ -328,7 +313,6 @@ mod matches {
             image_name: ImageName,
             image_tag: &'static str,
             extractor: Option<Result<VersionExtractor, version_extractor::Error>>,
-            breaking_degree: Option<usize>,
         }
 
         impl<'t> PartialEq<Matches<'t>> for ExpectedMatches {
@@ -337,7 +321,6 @@ mod matches {
                 self.image_name == other_image.name
                     && self.image_tag == other_image.tag
                     && self.extractor == other.extractor()
-                    && self.breaking_degree == other.breaking_degree()
             }
         }
 
@@ -368,7 +351,7 @@ mod matches {
         #[test]
         fn extracts_full_statement() {
             let dockerfile =
-            "# updock pattern: \"^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$\", breaking degree: 1\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
+                "# updock --pattern \"<!>.<>.<>-ce.0\"\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
             assert_eq_option!(
                 Matches::first(dockerfile),
                 Some(ExpectedMatches {
@@ -377,8 +360,7 @@ mod matches {
                         image: "gitlab-ce".into()
                     },
                     image_tag: "12.3.2-ce.0",
-                    extractor: Some(VersionExtractor::parse("^(\\d+)\\.(\\d+)\\.(\\d+)-ce\\.0$")),
-                    breaking_degree: Some(1),
+                    extractor: Some(VersionExtractor::parse("<!>.<>.<>-ce.0")),
                 })
             );
         }
@@ -394,7 +376,6 @@ mod matches {
                     },
                     image_tag: "14.04",
                     extractor: None,
-                    breaking_degree: None,
                 })
             )
         }
@@ -424,12 +405,12 @@ mod test {
 
     type TestDockerfileResults = Vec<(
         Image,
-        Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<FetchError>>,
+        Result<(Option<Update>, CurrentTag, VersionExtractor), CheckError<FetchError>>,
     )>;
 
     #[test]
     fn finds_compatible_update_from_string() {
-        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -449,22 +430,20 @@ mod test {
 
         let results = Dockerfile::check_input(&updock, input);
         let actual_updates = results
-            .filter_map(|(image_name, result)| {
-                result
-                    .ok()
-                    .map(|(maybe_update, _, _)| (image_name, maybe_update))
+            .map(|(image_name, result)| {
+                result.map(|(maybe_update, _, _)| (image_name, maybe_update))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<_, _>>();
 
         assert_eq!(
             actual_updates,
-            vec![(image, Some(Update::Compatible("14.12".to_string())))]
+            Ok(vec![(image, Some(Update::Compatible("14.12".to_string())))])
         );
     }
 
     #[test]
     fn finds_breaking_update_from_string() {
-        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -483,22 +462,18 @@ mod test {
 
         let results = Dockerfile::check_input(&updock, input);
         let actual_updates = results
-            .filter_map(|(image, result)| {
-                result
-                    .ok()
-                    .map(|(maybe_update, _, _)| (image, maybe_update))
-            })
-            .collect::<Vec<_>>();
+            .map(|(image, result)| result.map(|(maybe_update, _, _)| (image, maybe_update)))
+            .collect::<Result<_, _>>();
 
         assert_eq!(
             actual_updates,
-            vec![(image, Some(Update::Breaking("15.01".to_string())))]
+            Ok(vec![(image, Some(Update::Breaking("15.01".to_string())))])
         );
     }
 
     #[test]
     fn finds_compatible_and_breaking_update_from_string() {
-        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -519,28 +494,24 @@ mod test {
 
         let results = Dockerfile::check_input(&updock, input);
         let actual_updates = results
-            .filter_map(|(image, result)| {
-                result
-                    .ok()
-                    .map(|(maybe_update, _, _)| (image, maybe_update))
-            })
-            .collect::<Vec<_>>();
+            .map(|(image, result)| result.map(|(maybe_update, _, _)| (image, maybe_update)))
+            .collect::<Result<_, _>>();
 
         assert_eq!(
             actual_updates,
-            vec![(
+            Ok(vec![(
                 image,
                 Some(Update::Both {
                     compatible: "14.12".to_string(),
                     breaking: "15.01".to_string()
                 })
-            )]
+            )])
         );
     }
 
     #[test]
     fn ignores_lesser_versions_from_string() {
-        let input = "# updock pattern: \"<>.<>\", breaking degree: 1\nFROM ubuntu:14.04";
+        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -558,14 +529,10 @@ mod test {
 
         let results = Dockerfile::check_input(&updock, input);
         let actual_updates = results
-            .filter_map(|(image, result)| {
-                result
-                    .ok()
-                    .map(|(maybe_update, _, _)| (image, maybe_update))
-            })
-            .collect::<Vec<_>>();
+            .map(|(image, result)| result.map(|(maybe_update, _, _)| (image, maybe_update)))
+            .collect::<Result<_, _>>();
 
-        assert_eq!(actual_updates, vec![(image, None)]);
+        assert_eq!(actual_updates, Ok(vec![(image, None)]));
     }
 
     #[test]
@@ -578,10 +545,7 @@ mod test {
         let success_update = (
             Some(Update::Compatible(success_tag.clone())),
             CurrentTag::Found,
-            PatternInfo {
-                extractor: VersionExtractor::parse("").unwrap(),
-                breaking_degree: 1,
-            },
+            VersionExtractor::parse("<!>.<>").unwrap(),
         );
 
         let fail_image = Image {
@@ -627,19 +591,13 @@ mod test {
             CurrentTag::NotEncountered {
                 searched_amount: 100,
             },
-            PatternInfo {
-                extractor: VersionExtractor::parse("").unwrap(),
-                breaking_degree: 1,
-            },
+            VersionExtractor::parse("<!>.<>").unwrap(),
         );
 
         let input: TestDockerfileResults = vec![(image.clone(), Ok(update))];
 
         let result = DockerfileReport::from(input.into_iter());
-        assert_eq!(
-            result.report.compatible_updates,
-            vec![(image.clone(), tag)],
-        );
+        assert_eq!(result.report.compatible_updates, vec![(image.clone(), tag)],);
         assert_eq!(
             result.report.failures,
             vec![(
