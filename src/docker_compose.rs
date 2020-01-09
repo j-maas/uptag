@@ -181,14 +181,14 @@ mod test {
     use crate::tag_fetcher::test::FetchError;
     use crate::tag_fetcher::CurrentTag;
     use crate::version_extractor::VersionExtractor;
-    use crate::{PatternInfo, Update};
+    use crate::Update;
 
     type TestDockerComposeResults = Vec<(
         ServiceName,
         Result<
             Vec<(
                 Image,
-                Result<(Option<Update>, CurrentTag, PatternInfo), CheckError<FetchError>>,
+                Result<(Option<Update>, CurrentTag, VersionExtractor), CheckError<FetchError>>,
             )>,
             (),
         >,
@@ -205,10 +205,7 @@ mod test {
         let compatible_update = (
             Some(Update::Compatible(compatible_tag.clone())),
             CurrentTag::Found,
-            PatternInfo {
-                extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
-                breaking_degree: 1,
-            },
+            VersionExtractor::parse("<>.<>.<>").unwrap(),
         );
 
         let fail_image = Image {
@@ -226,10 +223,7 @@ mod test {
         let breaking_update = (
             Some(Update::Breaking(breaking_tag.clone())),
             CurrentTag::Found,
-            PatternInfo {
-                extractor: VersionExtractor::parse("<>.<>.<>").unwrap(),
-                breaking_degree: 1,
-            },
+            VersionExtractor::parse("<>.<>.<>").unwrap(),
         );
 
         let input: TestDockerComposeResults = vec![

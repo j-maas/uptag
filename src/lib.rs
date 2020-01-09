@@ -37,20 +37,15 @@ where
         &self,
         image: &Image,
         current_version: &Version,
-        pattern: &PatternInfo,
+        extractor: &VersionExtractor,
     ) -> Result<(Option<Update>, CurrentTag), T::FetchError> {
         let (tags, current_tag) = self.fetcher.fetch_until(&image.name, &image.tag)?;
         let (compatible, breaking): (Vec<_>, Vec<_>) = tags
             .into_iter()
-            .filter_map(|tag| {
-                pattern
-                    .extractor
-                    .extract_from(&tag)
-                    .map(|version| (tag, version))
-            })
+            .filter_map(|tag| extractor.extract_from(&tag).map(|version| (tag, version)))
             .filter(|(_, version)| current_version < version)
             .partition(|(_, version)| {
-                current_version.is_breaking_update_to(version, pattern.breaking_degree)
+                current_version.is_breaking_update_to(version, extractor.pattern.breaking_degree())
             });
 
         let max_compatible = compatible
@@ -64,12 +59,6 @@ where
 
         Ok((Update::from(max_compatible, max_breaking), current_tag))
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct PatternInfo {
-    pub extractor: VersionExtractor,
-    pub breaking_degree: usize,
 }
 
 type Tag = String;
@@ -122,10 +111,6 @@ mod test {
         };
         let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
-        let pattern_info = PatternInfo {
-            extractor,
-            breaking_degree: 1,
-        };
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -138,7 +123,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &pattern_info);
+        let result = updock.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -155,12 +140,8 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse("<>.<>").unwrap();
+        let extractor = VersionExtractor::parse("<!>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
-        let pattern_info = PatternInfo {
-            extractor,
-            breaking_degree: 1,
-        };
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -173,7 +154,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &pattern_info);
+        let result = updock.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -190,12 +171,8 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse("<>.<>").unwrap();
+        let extractor = VersionExtractor::parse("<!>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
-        let pattern_info = PatternInfo {
-            extractor,
-            breaking_degree: 1,
-        };
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -209,7 +186,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &pattern_info);
+        let result = updock.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -231,10 +208,6 @@ mod test {
         };
         let extractor = VersionExtractor::parse("<>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
-        let pattern_info = PatternInfo {
-            extractor,
-            breaking_degree: 1,
-        };
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -246,7 +219,7 @@ mod test {
         );
         let updock = Updock::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &pattern_info);
+        let result = updock.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(actual, (None, CurrentTag::Found));
     }

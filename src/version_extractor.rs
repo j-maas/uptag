@@ -6,7 +6,7 @@ use pattern_parser::Pattern;
 
 #[derive(Debug, Clone)]
 pub struct VersionExtractor {
-    pattern: Pattern,
+    pub pattern: Pattern,
     regex: Regex,
 }
 
@@ -78,18 +78,8 @@ impl VersionExtractor {
                     .iter()
                     .skip(1) // We are only interested in the capture groups, so we skip the first submatch, since that contains the entire match.
                     .filter_map(|maybe_submatch| {
-                        maybe_submatch.map(|submatch| {
-                            submatch
-                                .as_str()
-                                .parse::<VersionPart>()
-                                .unwrap_or_else(|_| {
-                                    panic!(
-                                        "The pattern {} captured a non-numeric version part in tag `{}`",
-                                        self.regex,
-                                        tag
-                                    )
-                                })
-                        })
+                        maybe_submatch
+                            .map(|submatch| submatch.as_str().parse::<VersionPart>().unwrap())
                     })
                     .collect::<Vec<_>>()
             })
@@ -184,6 +174,10 @@ mod pattern_parser {
             pattern(i)
                 .map(|(_, pattern)| pattern)
                 .map_err(|error| Error::new(i, error))
+        }
+
+        pub fn breaking_degree(&self) -> usize {
+            self.breaking_degree
         }
 
         pub fn regex(&self) -> Regex {
