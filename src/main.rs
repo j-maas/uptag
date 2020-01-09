@@ -200,7 +200,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     let docker_compose_report = DockerComposeReport::from(services);
 
-    let mut exit_code = ExitCode::from(docker_compose_report.report.update_level());
+    let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
     if opts.check_flags.json {
         let report = docker_compose_report.report;
@@ -223,9 +223,6 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                 )
             })
             .collect::<IndexMap<_, _>>();
-        if !failures.is_empty() {
-            exit_code.merge(&EXIT_ERROR);
-        }
 
         println!(
             "{}",
