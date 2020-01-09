@@ -104,7 +104,7 @@ pub struct DockerfileReport<T>
 where
     T: 'static + std::error::Error,
 {
-    pub report: Report<Image, Tag, ReportError<T>>,
+    pub report: Report<Image, (Image, Tag), (Image, ReportError<T>)>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -149,7 +149,7 @@ where
                 ))
             }
             match maybe_update {
-                None => no_updates.push((image, ())),
+                None => no_updates.push(image),
                 Some(Update::Compatible(tag)) => {
                     compatible_updates.push((image, tag));
                 }
@@ -193,7 +193,7 @@ where
             .report
             .no_updates
             .iter()
-            .map(|(image, ())| image.to_string())
+            .map(|image| image.to_string())
             .collect::<Vec<_>>();
 
         let mut output = Vec::new();

@@ -198,11 +198,16 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let updock = Updock::default();
     let services = compose.services.into_iter().map(|(service_name, service)| {
         let path = compose_dir.join(service.build).join("Dockerfile");
+        let path_display = path
+            .canonicalize()
+            .map(|path| display_canon(&path))
+            .unwrap_or_else(|_| path.display().to_string());
+
         let updates_result = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read file `{}`", path.display()))
             .map(|input| Dockerfile::check_input(&updock, &input).collect::<Vec<_>>());
 
-        (service_name, updates_result)
+        (service_name, path_display, updates_result)
     });
 
     let docker_compose_report = DockerComposeReport::from(services);
@@ -214,19 +219,22 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         let failures = report
             .failures
             .into_iter()
-            .map(|(service, result)| {
+            .map(|(service, service_path, result)| {
                 (
                     service,
-                    result
-                        .map_err(|error| format!("{:#}", error))
-                        .map(|updates| {
-                            updates
-                                .into_iter()
-                                .map(|(image, error)| {
-                                    (image, format!("{:#}", anyhow::Error::new(error)))
-                                })
-                                .collect::<IndexMap<_, _>>()
-                        }),
+                    (
+                        service_path,
+                        result
+                            .map_err(|error| format!("{:#}", error))
+                            .map(|updates| {
+                                updates
+                                    .into_iter()
+                                    .map(|(image, error)| {
+                                        (image, format!("{:#}", anyhow::Error::new(error)))
+                                    })
+                                    .collect::<IndexMap<_, _>>()
+                            }),
+                    ),
                 )
             })
             .collect::<IndexMap<_, _>>();
@@ -252,7 +260,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                 "{}",
                 docker_compose_report.display_failures(|error| format!("{:#}", error))
             );
-            println!();
+            println!("\n");
         }
         println!("{}", docker_compose_report.display_successes());
     }
