@@ -3,10 +3,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use env_logger;
-use indexmap::IndexMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
 
@@ -38,22 +36,12 @@ struct FetchOpts {
 struct CheckOpts {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    #[structopt(flatten)]
-    check_flags: CheckFlags,
 }
 
 #[derive(Debug, StructOpt)]
 struct CheckComposeOpts {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    #[structopt(flatten)]
-    check_flags: CheckFlags,
-}
-
-#[derive(Debug, StructOpt)]
-struct CheckFlags {
-    #[structopt(short, long)]
-    json: bool,
 }
 
 fn main() {
@@ -143,41 +131,15 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let dockerfile_report = DockerfileReport::<reqwest::Error>::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
-    if opts.check_flags.json {
-        let report = dockerfile_report.report;
-        let failures = report
-            .failures
-            .into_iter()
-            .map(|(image, error)| {
-                (
-                    image.to_string(),
-                    format!("{:#}", anyhow::Error::new(error)),
-                )
-            })
-            .collect::<IndexMap<_, _>>();
-
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "path": display_canon(&file_path),
-                "failures": failures,
-                "no_updates": report.no_updates,
-                "compatible_updates": report.compatible_updates,
-                "breaking_updates": report.breaking_updates
-            }))
-            .context("Failed to serialize result")?
-        );
-    } else {
-        println!(
-            "Report for Dockerfile at `{}`:\n",
-            display_canon(&file_path)
-        );
-        if !dockerfile_report.report.failures.is_empty() {
-            eprintln!("{}", dockerfile_report.display_failures());
-            println!();
-        }
-        println!("{}", dockerfile_report.display_successes());
+    println!(
+        "Report for Dockerfile at `{}`:\n",
+        display_canon(&file_path)
+    );
+    if !dockerfile_report.report.failures.is_empty() {
+        eprintln!("{}", dockerfile_report.display_failures());
+        println!();
     }
+    println!("{}", dockerfile_report.display_successes());
 
     Ok(exit_code)
 }
@@ -216,56 +178,18 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
-    if opts.check_flags.json {
-        let report = docker_compose_report.report;
-        let failures = report
-            .failures
-            .into_iter()
-            .map(|(service, service_path, result)| {
-                (
-                    service,
-                    (
-                        service_path,
-                        result
-                            .map_err(|error| format!("{:#}", error))
-                            .map(|updates| {
-                                updates
-                                    .into_iter()
-                                    .map(|(image, error)| {
-                                        (image, format!("{:#}", anyhow::Error::new(error)))
-                                    })
-                                    .collect::<IndexMap<_, _>>()
-                            }),
-                    ),
-                )
-            })
-            .collect::<IndexMap<_, _>>();
-
-        println!(
+    println!(
+        "Report for Docker Compose file at `{}`:\n",
+        display_canon(&compose_file_path)
+    );
+    if !docker_compose_report.report.failures.is_empty() {
+        eprintln!(
             "{}",
-            serde_json::to_string_pretty(&json!({
-                "failures": failures,
-                "no_updates": report.no_updates,
-                "compatible_updates": report.compatible_updates,
-                "breaking_updates": report.breaking_updates,
-                "path": display_canon(&compose_file_path)
-            }))
-            .context("Failed to serialize result")?
+            docker_compose_report.display_failures(|error| format!("{:#}", error))
         );
-    } else {
-        println!(
-            "Report for Docker Compose file at `{}`:\n",
-            display_canon(&compose_file_path)
-        );
-        if !docker_compose_report.report.failures.is_empty() {
-            eprintln!(
-                "{}",
-                docker_compose_report.display_failures(|error| format!("{:#}", error))
-            );
-            println!("\n");
-        }
-        println!("{}", docker_compose_report.display_successes());
+        println!("\n");
     }
+    println!("{}", docker_compose_report.display_successes());
 
     Ok(exit_code)
 }
