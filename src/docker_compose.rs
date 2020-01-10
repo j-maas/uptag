@@ -105,11 +105,11 @@ where
             .breaking_updates
             .iter()
             .map(|(service, service_path, updates)| {
-                [
+                format!(
+                    "{}\n{}",
                     display_service(service, service_path),
                     display_updates(updates.iter()),
-                ]
-                .join("\n")
+                )
             })
             .collect::<Vec<_>>();
         let compatible_updates = self
@@ -117,11 +117,11 @@ where
             .compatible_updates
             .iter()
             .map(|(service, service_path, updates)| {
-                [
+                format!(
+                    "{}\n{}",
                     display_service(service, service_path),
                     display_updates(updates.iter()),
-                ]
-                .join("\n")
+                )
             })
             .collect::<Vec<_>>();
         let no_updates = self
@@ -129,11 +129,11 @@ where
             .no_updates
             .iter()
             .map(|(service, service_path, images)| {
-                [
+                format!(
+                    "{}\n{}",
                     display_service(service, service_path),
                     display_images(images.iter()),
-                ]
-                .join("\n")
+                )
             })
             .collect::<Vec<_>>();
 
@@ -177,7 +177,7 @@ where
                             format!("{}: {}", display_image(image), display_error(check_error))
                         })
                         .join("\n");
-                    [display_service(service, service_path), errors].join("\n")
+                    format!("{}\n{}", display_service(service, service_path), errors)
                 }
                 Err(error) => format!("  {}:\n  - {}", service, custom_display_error(error)),
             })
