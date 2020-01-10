@@ -197,7 +197,7 @@ fn display_service(service: &str, service_path: &str) -> String {
 
 fn display_updates<'a>(updates: impl Iterator<Item = &'a (Image, String)>) -> String {
     updates
-        .map(|(image, update)| format!("  - {} -!> {}:{}", image, image.name, update))
+        .map(|(image, update)| format!("  - {} -> {}:{}", image, image.name, update))
         .join("\n")
 }
 
