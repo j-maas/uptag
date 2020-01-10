@@ -1,12 +1,12 @@
 #[derive(Debug)]
-pub struct Report<Key, Update, Error, Content = ()> {
-    pub no_updates: Vec<(Key, Content)>,
-    pub compatible_updates: Vec<(Key, Update)>,
-    pub breaking_updates: Vec<(Key, Update)>,
-    pub failures: Vec<(Key, Error)>,
+pub struct Report<NoUpdate, Update, Error> {
+    pub no_updates: Vec<NoUpdate>,
+    pub compatible_updates: Vec<Update>,
+    pub breaking_updates: Vec<Update>,
+    pub failures: Vec<Error>,
 }
 
-impl<K, U, E, C> Report<K, U, E, C> {
+impl<N, U, E> Report<N, U, E> {
     pub fn update_level(&self) -> UpdateLevel {
         use UpdateLevel::*;
 

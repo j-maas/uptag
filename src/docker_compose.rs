@@ -28,8 +28,14 @@ where
     T: 'static + std::error::Error,
 {
     #[allow(clippy::type_complexity)]
-    pub report: Report<ServiceName, Vec<(Image, Tag)>, DockerComposeResult<T, E>, Vec<(Image, ())>>,
+    pub report: Report<
+        (ServiceName, PathDisplay, Vec<Image>),
+        (ServiceName, PathDisplay, Vec<(Image, Tag)>),
+        (ServiceName, PathDisplay, DockerComposeResult<T, E>),
+    >,
 }
+
+type PathDisplay = String;
 
 type DockerComposeResult<T, E> = Result<Vec<(Image, ReportError<T>)>, E>;
 
@@ -41,6 +47,7 @@ where
         results: impl Iterator<
             Item = (
                 ServiceName,
+                PathDisplay,
                 Result<impl IntoIterator<Item = DockerfileResult<T>>, E>,
             ),
         >,
@@ -50,26 +57,34 @@ where
         let mut breaking_updates = Vec::new();
         let mut failures = Vec::new();
 
-        for (service, result) in results {
+        for (service, service_path, result) in results {
             match result {
                 Ok(updates_result) => {
                     let report = DockerfileReport::from(updates_result.into_iter()).report;
 
                     if !report.no_updates.is_empty() {
-                        no_updates.push((service.clone(), report.no_updates));
+                        no_updates.push((service.clone(), service_path.clone(), report.no_updates));
                     }
                     if !report.compatible_updates.is_empty() {
-                        compatible_updates.push((service.clone(), report.compatible_updates));
+                        compatible_updates.push((
+                            service.clone(),
+                            service_path.clone(),
+                            report.compatible_updates,
+                        ));
                     }
                     if !report.breaking_updates.is_empty() {
-                        breaking_updates.push((service.clone(), report.breaking_updates));
+                        breaking_updates.push((
+                            service.clone(),
+                            service_path.clone(),
+                            report.breaking_updates,
+                        ));
                     }
                     if !report.failures.is_empty() {
-                        failures.push((service.clone(), Ok(report.failures)));
+                        failures.push((service.clone(), service_path, Ok(report.failures)));
                     }
                 }
                 Err(error) => {
-                    failures.push((service, Err(error)));
+                    failures.push((service, service_path, Err(error)));
                 }
             }
         }
@@ -89,36 +104,36 @@ where
             .report
             .breaking_updates
             .iter()
-            .map(|(service, updates)| {
-                let output = updates
-                    .iter()
-                    .map(|(image, update)| format!("  {} -!> {}:{}", image, image.name, update))
-                    .join("\n");
-                format!("{}:\n{}", service, output)
+            .map(|(service, service_path, updates)| {
+                format!(
+                    "{}\n{}",
+                    display_service(service, service_path),
+                    display_updates(updates.iter()),
+                )
             })
             .collect::<Vec<_>>();
         let compatible_updates = self
             .report
             .compatible_updates
             .iter()
-            .map(|(service, updates)| {
-                let output = updates
-                    .iter()
-                    .map(|(image, update)| format!("  {} -> {}:{}", image, image.name, update))
-                    .join("\n");
-                format!("{}:\n{}", service, output)
+            .map(|(service, service_path, updates)| {
+                format!(
+                    "{}\n{}",
+                    display_service(service, service_path),
+                    display_updates(updates.iter()),
+                )
             })
             .collect::<Vec<_>>();
         let no_updates = self
             .report
             .no_updates
             .iter()
-            .map(|(service, images)| {
-                let output = images
-                    .iter()
-                    .map(|(image, ())| format!("  {}", image))
-                    .join("\n");
-                format!("{}:\n{}", service, output)
+            .map(|(service, service_path, images)| {
+                format!(
+                    "{}\n{}",
+                    display_service(service, service_path),
+                    display_images(images.iter()),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -128,25 +143,25 @@ where
             output.push(format!(
                 "{} with breaking update:\n{}",
                 breaking_updates.len(),
-                breaking_updates.join("\n")
+                breaking_updates.join("\n\n")
             ));
         }
         if !compatible_updates.is_empty() {
             output.push(format!(
                 "{} with compatible update:\n{}",
                 compatible_updates.len(),
-                compatible_updates.join("\n")
+                compatible_updates.join("\n\n")
             ));
         }
         if !no_updates.is_empty() {
             output.push(format!(
                 "{} with no updates:\n{}",
                 no_updates.len(),
-                no_updates.join("\n")
+                no_updates.join("\n\n")
             ));
         }
 
-        output.join("\n\n")
+        output.join("\n\n\n")
     }
 
     pub fn display_failures(&self, custom_display_error: impl Fn(&E) -> String) -> String {
@@ -154,22 +169,44 @@ where
             .report
             .failures
             .iter()
-            .map(|(service, error)| match error {
+            .map(|(service, service_path, error)| match error {
                 Ok(check_errors) => {
                     let errors = check_errors
                         .iter()
                         .map(|(image, check_error)| {
-                            format!("  {}: {}", image, display_error(check_error))
+                            format!("{}: {}", display_image(image), display_error(check_error))
                         })
                         .join("\n");
-                    format!("{}:\n{}", service, errors)
+                    format!("{}\n{}", display_service(service, service_path), errors)
                 }
-                Err(error) => format!("{}: {}", service, custom_display_error(error)),
+                Err(error) => format!("  {}:\n  - {}", service, custom_display_error(error)),
             })
             .collect::<Vec<_>>();
 
-        format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
+        format!(
+            "{} with failure:\n{}",
+            failures.len(),
+            failures.join("\n\n")
+        )
     }
+}
+
+fn display_service(service: &str, service_path: &str) -> String {
+    format!("  {} (at `{}`):", service, service_path)
+}
+
+fn display_updates<'a>(updates: impl Iterator<Item = &'a (Image, String)>) -> String {
+    updates
+        .map(|(image, update)| format!("  - {} -> {}:{}", image, image.name, update))
+        .join("\n")
+}
+
+fn display_images<'a>(images: impl Iterator<Item = &'a Image>) -> String {
+    images.map(display_image).join("\n")
+}
+
+fn display_image(image: &Image) -> String {
+    format!("  - {}", image)
 }
 
 #[cfg(test)]
@@ -185,6 +222,7 @@ mod test {
 
     type TestDockerComposeResults = Vec<(
         ServiceName,
+        PathDisplay,
         Result<
             Vec<(
                 Image,
@@ -197,6 +235,8 @@ mod test {
     #[test]
     fn generates_docker_compose_report() {
         let ubuntu_service = "ubuntu".to_string();
+        let ubuntu_path = "/path/to/ubuntu".to_string();
+
         let compatible_image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
@@ -215,6 +255,8 @@ mod test {
         let fail_error = CheckError::UnspecifiedPattern;
 
         let alpine_service = "alpine".to_string();
+        let alpine_path = "path/to/alpine".to_string();
+
         let breaking_image = Image {
             name: ImageName::new(None, "alpine".to_string()),
             tag: "3.8.4".to_string(),
@@ -229,6 +271,7 @@ mod test {
         let input: TestDockerComposeResults = vec![
             (
                 ubuntu_service.clone(),
+                ubuntu_path.clone(),
                 Ok(vec![
                     (compatible_image.clone(), Ok(compatible_update)),
                     (fail_image.clone(), Err(fail_error)),
@@ -236,6 +279,7 @@ mod test {
             ),
             (
                 alpine_service.clone(),
+                alpine_path.clone(),
                 Ok(vec![(breaking_image.clone(), Ok(breaking_update))]),
             ),
         ];
@@ -245,6 +289,7 @@ mod test {
             result.report.compatible_updates,
             vec![(
                 ubuntu_service.clone(),
+                ubuntu_path.clone(),
                 vec![(compatible_image, compatible_tag)]
             )]
         );
@@ -253,9 +298,10 @@ mod test {
                 .report
                 .failures
                 .into_iter()
-                .map(|(service, result)| {
+                .map(|(service, service_path, result)| {
                     (
                         service,
+                        service_path,
                         result.map(|images| {
                             images
                                 .into_iter()
@@ -265,11 +311,15 @@ mod test {
                     )
                 })
                 .collect::<Vec<_>>(),
-            vec![(ubuntu_service, Ok(vec![fail_image]))]
+            vec![(ubuntu_service, ubuntu_path, Ok(vec![fail_image]))]
         );
         assert_eq!(
             result.report.breaking_updates,
-            vec![(alpine_service, vec![(breaking_image, breaking_tag)])]
+            vec![(
+                alpine_service,
+                alpine_path,
+                vec![(breaking_image, breaking_tag)]
+            )]
         )
     }
 }
