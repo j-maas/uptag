@@ -174,13 +174,12 @@ where
                     let errors = check_errors
                         .iter()
                         .map(|(image, check_error)| {
-                            let image_display = display_image(image);
-                            format!("{}: {}", image_display, display_error(check_error))
+                            format!("{}: {}", display_image(image), display_error(check_error))
                         })
                         .join("\n");
                     [display_service(service, service_path), errors].join("\n")
                 }
-                Err(error) => format!("{}: {}", service, custom_display_error(error)),
+                Err(error) => format!("  {}:\n  - {}", service, custom_display_error(error)),
             })
             .collect::<Vec<_>>();
 
