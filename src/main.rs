@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use env_logger;
 use indexmap::IndexMap;
+use itertools::Itertools;
+use lazy_static::lazy_static;
 use serde_json::json;
 use serde_yaml;
 use structopt::StructOpt;
@@ -131,7 +133,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let file_path = opts
         .file
         .canonicalize()
-        .with_context(|| format!("Failed to find file `{}`", opts.file.display()))?;
+        .with_context(|| format!("Failed to find file `{}`", clean_path(&opts.file)))?;
     let input = fs::read_to_string(&file_path)
         .with_context(|| format!("Failed to read file `{}`", display_canon(&file_path)))?;
 
@@ -184,7 +186,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let compose_file_path = opts
         .file
         .canonicalize()
-        .with_context(|| format!("Failed to find file `{}`", opts.file.display()))?;
+        .with_context(|| format!("Failed to find file `{}`", clean_path(&opts.file)))?;
     let compose_file = fs::File::open(&compose_file_path).with_context(|| {
         format!(
             "Failed to read file `{}`",
@@ -201,10 +203,10 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         let path_display = path
             .canonicalize()
             .map(|path| display_canon(&path))
-            .unwrap_or_else(|_| path.display().to_string());
+            .unwrap_or_else(|_| clean_path(&path));
 
         let updates_result = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read file `{}`", path.display()))
+            .with_context(|| format!("Failed to read file `{}`", clean_path(&path)))
             .map(|input| Dockerfile::check_input(&updock, &input).collect::<Vec<_>>());
 
         (service_name, path_display, updates_result)
@@ -281,4 +283,31 @@ fn display_canon(path: &std::path::Path) -> String {
         output.replace_range(..4, "");
     }
     output
+}
+
+lazy_static! {
+    static ref SEPARATOR: String = std::path::MAIN_SEPARATOR.to_string();
+    static ref CWD: PathBuf = std::env::current_dir().unwrap_or_default();
+}
+use std::path;
+fn clean_path(path: &path::Path) -> String {
+    let absolute_path = CWD.join(path);
+    let mut components = absolute_path.components();
+
+    fn component_to_string(c: path::Component) -> String {
+        c.as_os_str().to_string_lossy().to_string()
+    }
+    let first = match components.next() {
+        Some(path::Component::RootDir) => "".to_string(),
+        Some(c) => component_to_string(c),
+        None => return "".to_string(),
+    };
+    vec![first]
+        .into_iter()
+        .chain(components.filter_map(|c| match c {
+            // Filter out all non-leading root-dirs to prevent surrounding them with extra separators.
+            path::Component::RootDir => None,
+            c => Some(component_to_string(c)),
+        }))
+        .join(&SEPARATOR)
 }
