@@ -123,6 +123,20 @@ where
     },
 }
 
+pub fn format_update(current_image: &Image, version_prefix: &'static str, new_tag: &str) -> String {
+    let image_name = current_image.name.to_string();
+
+    let prefix_width = std::cmp::max(version_prefix.len(), image_name.len());
+    format!(
+        "{image_name:>width$}:{current_tag}\n{version_prefix:>width$} {new_tag}",
+        image_name = image_name,
+        current_tag = current_image.tag,
+        version_prefix = version_prefix,
+        new_tag = new_tag,
+        width = prefix_width
+    )
+}
+
 impl<T> DockerfileReport<T>
 where
     T: 'static + std::error::Error,
@@ -181,13 +195,13 @@ where
             .report
             .breaking_updates
             .iter()
-            .map(|(image, tag)| format!("{} -!> {}:{}", image, image.name, tag))
+            .map(|(image, tag)| format_update(image, "-!>", tag))
             .collect::<Vec<_>>();
         let compatible_updates = self
             .report
             .compatible_updates
             .iter()
-            .map(|(image, tag)| format!("{} -> {}:{}", image, image.name, tag))
+            .map(|(image, tag)| format_update(image, "->", tag))
             .collect::<Vec<_>>();
         let no_updates = self
             .report
