@@ -112,7 +112,7 @@ pub enum ReportError<T>
 where
     T: 'static + std::error::Error,
 {
-    #[error("{0}")]
+    #[error(transparent)]
     CheckError(#[from] CheckError<T>),
     #[error(
         "Failed to find the current tag `{current_tag}` in the latest {searched_amount} tags (either the tag is missing, or it might be in older tags beyond the search limit)" 
