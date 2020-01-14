@@ -5,7 +5,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::display_error;
-use crate::dockerfile::{DockerfileReport, DockerfileResult, ReportError};
+use crate::dockerfile::{format_update, DockerfileReport, DockerfileResult, ReportError};
 use crate::image::Image;
 use crate::report::Report;
 
@@ -197,7 +197,11 @@ fn display_service(service: &str, service_path: &str) -> String {
 
 fn display_updates<'a>(updates: impl Iterator<Item = &'a (Image, String)>) -> String {
     updates
-        .map(|(image, update)| format!("  - {} -> {}:{}", image, image.name, update))
+        .map(|(image, update)| {
+            let output = format_update(image, "->", update);
+            let indented_output = output.replace("\n", "\n    ");
+            format!("  - {}", indented_output)
+        })
         .join("\n")
 }
 
@@ -245,7 +249,7 @@ mod test {
         let compatible_update = (
             Some(Update::Compatible(compatible_tag.clone())),
             CurrentTag::Found,
-            VersionExtractor::parse("<>.<>.<>").unwrap(),
+            VersionExtractor::parse("<!>.<>.<>").unwrap(),
         );
 
         let fail_image = Image {
@@ -265,7 +269,7 @@ mod test {
         let breaking_update = (
             Some(Update::Breaking(breaking_tag.clone())),
             CurrentTag::Found,
-            VersionExtractor::parse("<>.<>.<>").unwrap(),
+            VersionExtractor::parse("<!>.<>.<>").unwrap(),
         );
 
         let input: TestDockerComposeResults = vec![
