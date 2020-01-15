@@ -23,62 +23,9 @@ pub trait TagFetcher {
     ///
     /// [`fetch_until`]: #method.fetch_until
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
-
-    /// Fetches all tags until before `until_tag` is encountered.
-    ///
-    /// The `until_tag` itself is excluded from the resulting list.
-    ///
-    /// # Errors
-    /// Any [`FetchError`] encountered while fetching new tags will be forwarded.
-    ///
-    /// If `until_tag` could not be found, an [`UnfoundTag`] error variant is emitted.
-    ///
-    /// [`FetchError`]: #associatedtype.FetchError
-    /// [`UnfoundTag`]: enum.FetchUntilError.html#variant.UnfoundTag
-    fn fetch_until(
-        &self,
-        image: &ImageName,
-        until_tag: &str,
-    ) -> Result<(Vec<Tag>, CurrentTag), Self::FetchError> {
-        let tags = self.fetch(image).into_iter();
-        Self::until_tag(tags, until_tag)
-    }
-
-    fn until_tag(
-        tags: impl Iterator<Item = FetchEntry<Self::FetchError>>,
-        until_tag: &str,
-    ) -> Result<(Vec<Tag>, CurrentTag), Self::FetchError> {
-        let mut found = false;
-        let tags_result = tags
-            .take_while(|result| {
-                found = result
-                    .as_ref()
-                    .map(|candidate| candidate == until_tag)
-                    .unwrap_or(false);
-                !found
-            })
-            .collect::<Result<Vec<_>, _>>();
-
-        tags_result.map(|tags| {
-            let current_tag = if found {
-                CurrentTag::Found
-            } else {
-                CurrentTag::NotEncountered {
-                    searched_amount: tags.len(),
-                }
-            };
-            (tags, current_tag)
-        })
-    }
 }
 
 pub type FetchEntry<E> = Result<Tag, E>;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CurrentTag {
-    Found,
-    NotEncountered { searched_amount: usize },
-}
 
 #[derive(Debug, Default)]
 pub struct DockerHubTagFetcher {
@@ -109,20 +56,11 @@ impl DockerHubTagFetcher {
 }
 
 impl TagFetcher for DockerHubTagFetcher {
-    type TagIter = DockerHubTagIterator;
+    type TagIter = std::iter::Take<DockerHubTagIterator>;
     type FetchError = reqwest::Error;
 
     fn fetch(&self, name: &ImageName) -> Self::TagIter {
-        DockerHubTagIterator::new(name)
-    }
-
-    fn fetch_until(
-        &self,
-        image: &ImageName,
-        until_tag: &str,
-    ) -> Result<(Vec<Tag>, CurrentTag), Self::FetchError> {
-        let tags = self.fetch(image).take(self.search_limit);
-        Self::until_tag(tags, until_tag)
+        DockerHubTagIterator::new(name).take(self.search_limit)
     }
 }
 
@@ -226,22 +164,24 @@ pub mod test {
 
     use thiserror::Error;
 
-    use crate::image::{Image, ImageName};
+    use crate::image::ImageName;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Default)]
     pub struct ArrayFetcher {
         content: HashMap<ImageName, Vec<Tag>>,
-        max_search_amount: usize,
     }
 
     impl ArrayFetcher {
+        pub fn new() -> Self {
+            ArrayFetcher {
+                content: HashMap::new(),
+            }
+        }
+
         pub fn with(image_name: ImageName, tags: Vec<Tag>) -> ArrayFetcher {
             let mut content = HashMap::new();
             content.insert(image_name, tags);
-            ArrayFetcher {
-                content,
-                max_search_amount: 100,
-            }
+            ArrayFetcher { content }
         }
     }
 
@@ -267,73 +207,9 @@ pub mod test {
         image_name: String,
     }
 
-    mod until_tag {
-        use super::*;
-
-        #[test]
-        fn stops_before_tag() {
-            let tags = vec![
-                "14.06".to_string(),
-                "14.05".to_string(),
-                "14.04".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ]
-            .into_iter()
-            .map(Ok);
-
-            assert_eq!(
-                ArrayFetcher::until_tag(tags, "14.04"),
-                Ok((
-                    vec!["14.06".to_string(), "14.05".to_string(),],
-                    CurrentTag::Found
-                ))
-            );
-        }
-
-        #[test]
-        fn signals_missing_tag() {
-            let tags = vec![
-                "14.06".to_string(),
-                "14.05".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ]
-            .into_iter()
-            .map(Ok);
-
-            assert_eq!(
-                ArrayFetcher::until_tag(tags, "14.04"),
-                Ok((
-                    vec![
-                        "14.06".to_string(),
-                        "14.05".to_string(),
-                        "14.03".to_string(),
-                        "13.03".to_string(),
-                    ],
-                    CurrentTag::NotEncountered { searched_amount: 4 }
-                ))
-            );
-        }
-
-        #[test]
-        fn forwards_fetch_failure() {
-            let image = Image {
-                name: ImageName::new(None, "ubuntu".to_string()),
-                tag: "14.04".to_string(),
-            };
-            let fetcher = ArrayFetcher {
-                content: HashMap::new(),
-                max_search_amount: 10,
-            };
-
-            let result = fetcher.fetch_until(&image.name, &image.tag);
-            assert_eq!(
-                result,
-                Err(FetchError {
-                    image_name: image.name.to_string()
-                })
-            );
+    impl FetchError {
+        pub fn new(image_name: String) -> Self {
+            FetchError { image_name }
         }
     }
 }

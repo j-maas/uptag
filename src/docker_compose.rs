@@ -220,7 +220,6 @@ mod test {
     use crate::dockerfile::CheckError;
     use crate::image::ImageName;
     use crate::tag_fetcher::test::FetchError;
-    use crate::tag_fetcher::CurrentTag;
     use crate::version_extractor::VersionExtractor;
     use crate::Update;
 
@@ -230,7 +229,7 @@ mod test {
         Result<
             Vec<(
                 Image,
-                Result<(Option<Update>, CurrentTag, VersionExtractor), CheckError<FetchError>>,
+                Result<(Update, VersionExtractor), CheckError<FetchError>>,
             )>,
             (),
         >,
@@ -247,8 +246,10 @@ mod test {
         };
         let compatible_tag = "14.05".to_string();
         let compatible_update = (
-            Some(Update::Compatible(compatible_tag.clone())),
-            CurrentTag::Found,
+            Update {
+                breaking: None,
+                compatible: Some(compatible_tag.clone()),
+            },
             VersionExtractor::parse("<!>.<>.<>").unwrap(),
         );
 
@@ -267,8 +268,10 @@ mod test {
         };
         let breaking_tag = "4.0.2".to_string();
         let breaking_update = (
-            Some(Update::Breaking(breaking_tag.clone())),
-            CurrentTag::Found,
+            Update {
+                compatible: None,
+                breaking: Some(breaking_tag.clone()),
+            },
             VersionExtractor::parse("<!>.<>.<>").unwrap(),
         );
 

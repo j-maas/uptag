@@ -142,8 +142,12 @@ impl Version {
         }
     }
 
-    pub fn is_breaking_update_to(&self, other: &Self, breaking_degree: usize) -> bool {
-        self.sameness_degree_with(other) >= breaking_degree
+    pub fn update_type(&self, other: &Self, breaking_degree: usize) -> UpdateType {
+        if self.sameness_degree_with(other) >= breaking_degree {
+            UpdateType::Compatible
+        } else {
+            UpdateType::Breaking
+        }
     }
 
     fn sameness_degree_with(&self, other: &Self) -> usize {
@@ -153,6 +157,12 @@ impl Version {
             .take_while(|(l, r)| l == r)
             .count()
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum UpdateType {
+    Compatible,
+    Breaking,
 }
 
 mod pattern_parser {
@@ -613,13 +623,13 @@ mod tests {
         }
 
         #[test]
-        fn allows_nonbreaking_upgrade((smaller, greater) in version_seq_no_break(5, 2)) {
-            prop_assert!(smaller.is_breaking_update_to(&greater, 2));
+        fn detects_comptaible_update((smaller, greater) in version_seq_no_break(5, 2)) {
+            prop_assert_eq!(smaller.update_type(&greater, 2), UpdateType::Compatible);
         }
 
         #[test]
-        fn prevents_breaking_upgrade((smaller, greater) in version_seq_with_break(5, 2)) {
-            prop_assert!(!smaller.is_breaking_update_to(&greater, 2));
+        fn detects_breaking_update((smaller, greater) in version_seq_with_break(5, 2)) {
+            prop_assert_eq!(smaller.update_type(&greater, 2), UpdateType::Breaking);
         }
     }
 }
