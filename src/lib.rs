@@ -6,10 +6,11 @@ pub mod tag_fetcher;
 pub mod version_extractor;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use image::Image;
-use tag_fetcher::{CurrentTag, DockerHubTagFetcher, TagFetcher};
-use version_extractor::{Version, VersionExtractor};
+use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use version_extractor::{UpdateType, Version, VersionExtractor};
 
 pub struct Updock<T>
 where
@@ -36,52 +37,73 @@ where
     pub fn find_update(
         &self,
         image: &Image,
+        // TODO: Extract current version in this function.
         current_version: &Version,
         extractor: &VersionExtractor,
-    ) -> Result<(Option<Update>, CurrentTag), T::FetchError> {
-        let (tags, current_tag) = self.fetcher.fetch_until(&image.name, &image.tag)?;
-        let (compatible, breaking): (Vec<_>, Vec<_>) = tags
-            .into_iter()
-            .filter_map(|tag| extractor.extract_from(&tag).map(|version| (tag, version)))
-            .filter(|(_, version)| current_version < version)
-            .partition(|(_, version)| {
-                current_version.is_breaking_update_to(version, extractor.breaking_degree())
-            });
+    ) -> Result<Update, FindUpdateError<T::FetchError>> {
+        let current_tag = &image.tag;
 
-        let max_compatible = compatible
-            .into_iter()
-            .max_by(|left, right| left.1.cmp(&right.1))
-            .map(|(tag, _)| tag);
-        let max_breaking = breaking
-            .into_iter()
-            .max_by(|left, right| left.1.cmp(&right.1))
-            .map(|(tag, _)| tag);
+        let mut breaking_update = None;
 
-        Ok((Update::from(max_compatible, max_breaking), current_tag))
+        let mut searched_amount = 0;
+        for tag_result in self.fetcher.fetch(&image.name) {
+            searched_amount += 1;
+
+            let tag_candidate = tag_result?;
+
+            if &tag_candidate == current_tag {
+                return Ok(Update {
+                    compatible: None,
+                    breaking: breaking_update,
+                });
+            }
+
+            if let Some(version_candidate) = extractor.extract_from(&tag_candidate) {
+                if &version_candidate < current_version {
+                    continue;
+                }
+
+                match version_candidate.update_type(current_version, extractor.breaking_degree()) {
+                    UpdateType::Breaking => {
+                        breaking_update = breaking_update.or(Some(tag_candidate));
+                    }
+                    UpdateType::Compatible => {
+                        return Ok(Update {
+                            compatible: Some(tag_candidate),
+                            breaking: breaking_update,
+                        })
+                    }
+                }
+            }
+        }
+
+        Err(FindUpdateError::CurrentTagNotEncountered {
+            current_tag: current_tag.clone(),
+            searched_amount,
+        })
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct Update {
+    pub compatible: Option<Tag>,
+    pub breaking: Option<Tag>,
 }
 
 type Tag = String;
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub enum Update {
-    Compatible(Tag),
-    Breaking(Tag),
-    Both { compatible: Tag, breaking: Tag },
-}
-
-impl Update {
-    pub fn from(maybe_compatible: Option<Tag>, maybe_breaking: Option<Tag>) -> Option<Update> {
-        match (maybe_compatible, maybe_breaking) {
-            (Some(compatible), Some(breaking)) => Some(Update::Both {
-                compatible,
-                breaking,
-            }),
-            (Some(compatible), None) => Some(Update::Compatible(compatible)),
-            (None, Some(breaking)) => Some(Update::Breaking(breaking)),
-            (None, None) => None,
-        }
-    }
+#[derive(Debug, Error, PartialEq)]
+pub enum FindUpdateError<E>
+where
+    E: 'static + std::error::Error,
+{
+    #[error("Failed to fetch tags")]
+    FetchError(#[from] E),
+    #[error("Failed to find current tag `{current_tag}` in the latest {searched_amount} tags")]
+    CurrentTagNotEncountered {
+        current_tag: Tag,
+        searched_amount: usize,
+    },
 }
 
 pub fn display_error(error: &impl std::error::Error) -> String {
@@ -109,7 +131,7 @@ mod test {
             name: ImageName::new(None, "ubuntu".to_string()),
             tag: "14.04".to_string(),
         };
-        let extractor = VersionExtractor::parse("<>.<>").unwrap();
+        let extractor = VersionExtractor::parse("<!>.<>").unwrap();
         let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
@@ -127,10 +149,10 @@ mod test {
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
-            (
-                Some(Update::Compatible("14.05".to_string())),
-                CurrentTag::Found
-            )
+            Update {
+                compatible: Some("14.05".to_string()),
+                breaking: None,
+            },
         );
     }
 
@@ -158,10 +180,10 @@ mod test {
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
-            (
-                Some(Update::Breaking("15.02".to_string())),
-                CurrentTag::Found
-            )
+            Update {
+                compatible: None,
+                breaking: Some("15.02".to_string()),
+            },
         );
     }
 
@@ -190,13 +212,10 @@ mod test {
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
-            (
-                Some(Update::Both {
-                    compatible: "14.05".to_string(),
-                    breaking: "15.02".to_string()
-                }),
-                CurrentTag::Found
-            )
+            Update {
+                compatible: Some("14.05".to_string()),
+                breaking: Some("15.02".to_string()),
+            },
         );
     }
 
@@ -221,6 +240,63 @@ mod test {
 
         let result = updock.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
-        assert_eq!(actual, (None, CurrentTag::Found));
+        assert_eq!(
+            actual,
+            Update {
+                compatible: None,
+                breaking: None,
+            },
+        );
+    }
+
+    #[test]
+    fn signals_missing_tag() {
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let extractor = VersionExtractor::parse("<!>.<>").unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
+
+        let fetcher = ArrayFetcher::with(
+            image.name.clone(),
+            vec![
+                "14.03".to_string(),
+                "14.02".to_string(),
+                "13.03".to_string(),
+            ],
+        );
+        let updock = Updock::new(fetcher);
+
+        let result = updock.find_update(&image, &current_version, &extractor);
+        assert_eq!(
+            result,
+            Err(FindUpdateError::CurrentTagNotEncountered {
+                current_tag: image.tag,
+                searched_amount: 3
+            })
+        );
+    }
+
+    #[test]
+    fn forwards_fetch_failure() {
+        let image = Image {
+            name: ImageName::new(None, "ubuntu".to_string()),
+            tag: "14.04".to_string(),
+        };
+        let extractor = VersionExtractor::parse("<!>.<>").unwrap();
+        let current_version = extractor.extract_from(&image.tag).unwrap();
+
+        // With an empty ArrayFetcher, all queries will return an error, since the image cannot be found.
+        let fetcher = ArrayFetcher::new();
+        let updock = Updock::new(fetcher);
+
+        let result = updock.find_update(&image, &current_version, &extractor);
+        assert_eq!(
+            result,
+            Err(FindUpdateError::FetchError(
+                tag_fetcher::test::FetchError::new(image.name.to_string())
+            ))
+        );
     }
 }
