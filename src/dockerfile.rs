@@ -6,14 +6,14 @@ use crate::report::Report;
 use crate::tag_fetcher::TagFetcher;
 use crate::version_extractor;
 use crate::version_extractor::VersionExtractor;
-use crate::{display_error, FindUpdateError, Update, Updock, Version};
+use crate::{display_error, FindUpdateError, Update, Uptag, Version};
 use matches::Matches;
 
 pub struct Dockerfile {}
 
 impl Dockerfile {
     pub fn check_input<'a, T>(
-        updock: &'a Updock<T>,
+        uptag: &'a Uptag<T>,
         input: &'a str,
     ) -> impl DockerfileResults<T::FetchError> + 'a
     where
@@ -25,7 +25,7 @@ impl Dockerfile {
             let result =
                 Self::extract_check_info(&image.tag, &matches.pattern().map(|m| m.as_str()))
                     .and_then(|(current_version, pattern_info)| {
-                        Ok(updock
+                        Ok(uptag
                             .find_update(&image, &current_version, &pattern_info)
                             .map(|update| (update, pattern_info))?)
                     });
@@ -262,7 +262,7 @@ mod matches {
 
     lazy_static! {
         static ref STATEMENT: Regex = Regex::new(
-            r#"(#\s*updock\s+--pattern\s+"(?P<pattern>[^"]*)"\s*\n[\s\n]*)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
+            r#"(#\s*uptag\s+--pattern\s+"(?P<pattern>[^"]*)"\s*\n[\s\n]*)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
         ).unwrap();
     }
 
@@ -359,7 +359,7 @@ mod matches {
         #[test]
         fn extracts_full_statement() {
             let dockerfile =
-                "# updock --pattern \"<!>.<>.<>-ce.0\"\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
+                "# uptag --pattern \"<!>.<>.<>-ce.0\"\nFROM gitlab/gitlab-ce:12.3.2-ce.0";
             assert_eq_option!(
                 Matches::first(dockerfile),
                 Some(ExpectedMatches {
@@ -417,7 +417,7 @@ mod test {
 
     #[test]
     fn finds_compatible_update_from_string() {
-        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
+        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -433,9 +433,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let results = Dockerfile::check_input(&updock, input);
+        let results = Dockerfile::check_input(&uptag, input);
         let actual_updates = results
             .map(|(image_name, result)| result.map(|(update, _)| (image_name, update)))
             .collect::<Result<_, _>>();
@@ -454,7 +454,7 @@ mod test {
 
     #[test]
     fn finds_breaking_update_from_string() {
-        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
+        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -469,9 +469,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let results = Dockerfile::check_input(&updock, input);
+        let results = Dockerfile::check_input(&uptag, input);
         let actual_updates = results
             .map(|(image, result)| result.map(|(update, _)| (image, update)))
             .collect::<Result<_, _>>();
@@ -490,7 +490,7 @@ mod test {
 
     #[test]
     fn finds_compatible_and_breaking_update_from_string() {
-        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
+        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -507,9 +507,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let results = Dockerfile::check_input(&updock, input);
+        let results = Dockerfile::check_input(&uptag, input);
         let actual_updates = results
             .map(|(image, result)| result.map(|(update, _)| (image, update)))
             .collect::<Result<_, _>>();
@@ -528,7 +528,7 @@ mod test {
 
     #[test]
     fn ignores_lesser_versions_from_string() {
-        let input = "# updock --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
+        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
 
         let image = Image {
             name: ImageName::new(None, "ubuntu".to_string()),
@@ -542,9 +542,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let results = Dockerfile::check_input(&updock, input);
+        let results = Dockerfile::check_input(&uptag, input);
         let actual_updates = results
             .map(|(image, result)| result.map(|(update, _)| (image, update)))
             .collect::<Result<_, _>>();

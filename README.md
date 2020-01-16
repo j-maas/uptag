@@ -1,7 +1,16 @@
-# updock: Update Dockerfiles.
-[![GitHub Workflow Status](https://github.com/Y0hy0h/updock/workflows/Build/badge.svg)](https://github.com/Y0hy0h/updock/actions) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
+# uptag: Update tags in Dockerfiles.
+[![GitHub Workflow Status](https://github.com/Y0hy0h/uptag/workflows/Build/badge.svg)](https://github.com/Y0hy0h/uptag/actions) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 
-Enables detection of updates to a Dockerfile's base image.
+Tired of manually looking up whether the base images you depend on have been updated?
+
+```
+$ uptag check ./Dockerfile
+Report for Dockerfile at `/home/y0hy0h/wordpress/Dockerfile`:
+
+1 with compatible update:
+bitnami/wordpress:5.3.2-r25
+               -> 5.3.2-r26
+```
 
 # License
 Licensed under either of

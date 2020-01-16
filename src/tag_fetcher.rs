@@ -140,7 +140,7 @@ impl Iterator for DockerHubTagIterator {
                             .collect::<VecDeque<_>>();
 
                         // If the image name is invalid, we will get a 200 OK, but
-                        // with an empty tag list. For details, see https://github.com/Y0hy0h/updock/issues/37
+                        // with an empty tag list. For details, see https://github.com/Y0hy0h/uptag/issues/37
                         if let NextPage::First = self.next_page {
                             if tags.is_empty() {
                                 return Err(DockerHubTagFetcherError::EmptyTags(

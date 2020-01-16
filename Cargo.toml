@@ -1,5 +1,5 @@
 [package]
-name = "updock"
+name = "uptag"
 version = "0.1.0"
 authors = ["Y0hy0h <Y0hy0h@users.noreply.github.com>"]
 license = "MIT OR Apache-2.0"
