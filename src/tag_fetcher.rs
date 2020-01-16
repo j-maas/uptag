@@ -8,7 +8,7 @@ use crate::image::ImageName;
 
 /// Enables fetching of tags belonging to an image.
 pub trait TagFetcher {
-    type TagIter: IntoIterator<Item = FetchEntry<Self::FetchError>>;
+    type TagIter: IntoIterator<Item = Result<Tag, Self::FetchError>>;
     type FetchError: std::error::Error;
 
     /// Constructs a fallible iterator over the `image`'s tags ordered
@@ -24,8 +24,6 @@ pub trait TagFetcher {
     /// [`fetch_until`]: #method.fetch_until
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
 }
-
-pub type FetchEntry<E> = Result<Tag, E>;
 
 #[derive(Debug, Default)]
 pub struct DockerHubTagFetcher {
@@ -57,7 +55,7 @@ impl DockerHubTagFetcher {
 
 impl TagFetcher for DockerHubTagFetcher {
     type TagIter = std::iter::Take<DockerHubTagIterator>;
-    type FetchError = reqwest::Error;
+    type FetchError = DockerHubTagIteratorError;
 
     fn fetch(&self, name: &ImageName) -> Self::TagIter {
         DockerHubTagIterator::new(name).take(self.search_limit)
@@ -111,8 +109,10 @@ impl DockerHubTagIterator {
     }
 }
 
+type DockerHubTagIteratorError = reqwest::Error;
+
 impl Iterator for DockerHubTagIterator {
-    type Item = Result<Tag, reqwest::Error>;
+    type Item = Result<Tag, DockerHubTagIteratorError>;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.fetched.is_empty() {
             self.fetched.pop_front().map(Ok)
