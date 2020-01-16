@@ -83,7 +83,7 @@ impl NextPage {
         use NextPage::*;
         match self {
             First => Some(format!(
-                "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}",
+                "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}&ordering=last_updated",
                 Self::format_name_for_url(&image),
                 FETCH_AMOUNT,
                 1
