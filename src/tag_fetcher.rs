@@ -3,12 +3,13 @@ use std::collections::VecDeque;
 use log;
 use reqwest;
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::image::ImageName;
 
 /// Enables fetching of tags belonging to an image.
 pub trait TagFetcher {
-    type TagIter: IntoIterator<Item = FetchEntry<Self::FetchError>>;
+    type TagIter: IntoIterator<Item = Result<Tag, Self::FetchError>>;
     type FetchError: std::error::Error;
 
     /// Constructs a fallible iterator over the `image`'s tags ordered
@@ -24,8 +25,6 @@ pub trait TagFetcher {
     /// [`fetch_until`]: #method.fetch_until
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
 }
-
-pub type FetchEntry<E> = Result<Tag, E>;
 
 #[derive(Debug, Default)]
 pub struct DockerHubTagFetcher {
@@ -57,7 +56,7 @@ impl DockerHubTagFetcher {
 
 impl TagFetcher for DockerHubTagFetcher {
     type TagIter = std::iter::Take<DockerHubTagIterator>;
-    type FetchError = reqwest::Error;
+    type FetchError = DockerHubTagFetcherError;
 
     fn fetch(&self, name: &ImageName) -> Self::TagIter {
         DockerHubTagIterator::new(name).take(self.search_limit)
@@ -83,7 +82,7 @@ impl NextPage {
         use NextPage::*;
         match self {
             First => Some(format!(
-                "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}",
+                "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}&ordering=last_updated",
                 Self::format_name_for_url(&image),
                 FETCH_AMOUNT,
                 1
@@ -111,8 +110,10 @@ impl DockerHubTagIterator {
     }
 }
 
+type DockerHubTagIteratorError = reqwest::Error;
+
 impl Iterator for DockerHubTagIterator {
-    type Item = Result<Tag, reqwest::Error>;
+    type Item = Result<Tag, DockerHubTagFetcherError>;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.fetched.is_empty() {
             self.fetched.pop_front().map(Ok)
@@ -128,7 +129,8 @@ impl Iterator for DockerHubTagIterator {
                         log::debug!("Reading JSON body...");
                         response.json::<Response>()
                     })
-                    .map(|response| {
+                    .map_err(DockerHubTagFetcherError::FetchError)
+                    .and_then(|response| {
                         log::info!("Fetch was successful.");
 
                         let mut tags = response
@@ -136,6 +138,17 @@ impl Iterator for DockerHubTagIterator {
                             .into_iter()
                             .map(|info| info.name)
                             .collect::<VecDeque<_>>();
+
+                        // If the image name is invalid, we will get a 200 OK, but
+                        // with an empty tag list. For details, see https://github.com/Y0hy0h/uptag/issues/37
+                        if let NextPage::First = self.next_page {
+                            if tags.is_empty() {
+                                return Err(DockerHubTagFetcherError::EmptyTags(
+                                    self.image_name.clone(),
+                                ));
+                            }
+                        }
+
                         let next = tags.pop_front();
                         self.fetched = tags;
 
@@ -148,12 +161,20 @@ impl Iterator for DockerHubTagIterator {
                             }
                         }
 
-                        next
+                        Ok(next)
                     })
                     .transpose()
             })
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum DockerHubTagFetcherError {
+    #[error(transparent)]
+    FetchError(#[from] DockerHubTagIteratorError),
+    #[error("The tag list was empty (this might indicate that `{0}` is not a valid image name)")]
+    EmptyTags(ImageName),
 }
 
 #[cfg(test)]

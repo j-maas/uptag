@@ -12,26 +12,26 @@ use image::Image;
 use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use version_extractor::{UpdateType, Version, VersionExtractor};
 
-pub struct Updock<T>
+pub struct Uptag<T>
 where
     T: TagFetcher,
 {
     fetcher: T,
 }
 
-impl Default for Updock<DockerHubTagFetcher> {
+impl Default for Uptag<DockerHubTagFetcher> {
     fn default() -> Self {
-        Updock::new(DockerHubTagFetcher::new())
+        Uptag::new(DockerHubTagFetcher::new())
     }
 }
 
-impl<T> Updock<T>
+impl<T> Uptag<T>
 where
     T: TagFetcher,
     T::FetchError: 'static,
 {
-    pub fn new(fetcher: T) -> Updock<T> {
-        Updock { fetcher }
+    pub fn new(fetcher: T) -> Uptag<T> {
+        Uptag { fetcher }
     }
 
     pub fn find_update(
@@ -143,9 +143,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -174,9 +174,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -206,9 +206,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -236,9 +236,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -266,9 +266,9 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::CurrentTagNotEncountered {
@@ -289,9 +289,9 @@ mod test {
 
         // With an empty ArrayFetcher, all queries will return an error, since the image cannot be found.
         let fetcher = ArrayFetcher::new();
-        let updock = Updock::new(fetcher);
+        let uptag = Uptag::new(fetcher);
 
-        let result = updock.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &current_version, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::FetchError(

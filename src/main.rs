@@ -8,13 +8,13 @@ use lazy_static::lazy_static;
 use serde_yaml;
 use structopt::StructOpt;
 
-use updock::docker_compose::{DockerCompose, DockerComposeReport};
-use updock::dockerfile::{Dockerfile, DockerfileReport};
-use updock::image::ImageName;
-use updock::report::UpdateLevel;
-use updock::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
-use updock::version_extractor::VersionExtractor;
-use updock::Updock;
+use uptag::docker_compose::{DockerCompose, DockerComposeReport};
+use uptag::dockerfile::{Dockerfile, DockerfileReport};
+use uptag::image::ImageName;
+use uptag::report::UpdateLevel;
+use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use uptag::version_extractor::VersionExtractor;
+use uptag::Uptag;
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -125,10 +125,10 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let input = fs::read_to_string(&file_path)
         .with_context(|| format!("Failed to read file `{}`", display_canon(&file_path)))?;
 
-    let updock = Updock::default();
-    let updates = Dockerfile::check_input(&updock, &input);
+    let uptag = Uptag::default();
+    let updates = Dockerfile::check_input(&uptag, &input);
 
-    let dockerfile_report = DockerfileReport::<reqwest::Error>::from(updates);
+    let dockerfile_report = DockerfileReport::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
     println!(
@@ -159,7 +159,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
-    let updock = Updock::default();
+    let uptag = Uptag::default();
     let services = compose.services.into_iter().map(|(service_name, service)| {
         let path = compose_dir.join(service.build).join("Dockerfile");
         let path_display = path
@@ -169,7 +169,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
         let updates_result = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read file `{}`", clean_path(&path)))
-            .map(|input| Dockerfile::check_input(&updock, &input).collect::<Vec<_>>());
+            .map(|input| Dockerfile::check_input(&uptag, &input).collect::<Vec<_>>());
 
         (service_name, path_display, updates_result)
     });
