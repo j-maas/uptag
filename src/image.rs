@@ -3,6 +3,7 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Serialize, Serializer};
+use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Image {
@@ -80,22 +81,11 @@ impl std::str::FromStr for ImageName {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("`{invalid}` is not a valid name of the form `<image>` or `<user>/<image>`")]
 pub struct ParseError {
     invalid: String,
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "`{}` is not a valid image name of the form `<image>` or `<user>/<image>`",
-            self.invalid
-        )
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod test {
