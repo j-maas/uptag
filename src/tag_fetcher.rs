@@ -15,8 +15,9 @@ pub trait TagFetcher {
     /// Constructs a fallible iterator over the `image`'s tags ordered
     /// from newest to oldest.
     ///
-    /// The order of tags has be antichronological in the sense that updates
-    /// have to appear before the tags they update.
+    /// The order of tags has to be antichronological in the sense that
+    /// tags that are updates to another tag have to appear before
+    /// that tag.
     ///
     /// # Errors
     /// If the `TagFetcher` encounters an error, it will emit an error variant
