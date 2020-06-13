@@ -18,7 +18,7 @@ ubuntu:18.03
 
 `/home/y0hy0h/Dockerfile`:
 ```Dockerfile
-# uptag --pattern "0.<!>.<!>-r<>"
+# uptag --pattern "<!>.<>"
 FROM ubuntu:18.03
 ```
 
