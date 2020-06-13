@@ -133,9 +133,9 @@ impl Iterator for DockerHubTagIterator {
                 image = self.image_name,
                 url = url
             );
-            let response_result = reqwest::get(&url);
+            let response_result = reqwest::blocking::get(&url);
             response_result
-                .and_then(|mut response| {
+                .and_then(|response| {
                     log::debug!("Received response with status `{}`.", response.status());
                     log::debug!("Reading JSON body...");
                     response.json::<Response>()
