@@ -28,8 +28,12 @@ struct FetchOpts {
     image: ImageName,
     #[structopt(short, long)]
     pattern: Option<VersionExtractor>,
+    /// If a pattern is given, the maximum number of matching tags to output before stopping.
     #[structopt(short, long, default_value = "25")]
     amount: usize,
+    /// The maximum number of tags to search through before stopping.
+    #[structopt(short, long, default_value = "100")]
+    search_limit: usize,
 }
 
 #[derive(Debug, StructOpt)]

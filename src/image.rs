@@ -3,6 +3,7 @@ use std::fmt;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Serialize, Serializer};
+use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Image {
@@ -33,9 +34,23 @@ pub enum ImageName {
     User { user: String, image: String },
 }
 
+// "Name components may contain lowercase letters, digits and separators.
+// A separator is defined as a period, one or two underscores, or one or more dashes.
+// A name component may not start or end with a separator."
+// - https://docs.docker.com/engine/reference/commandline/tag/#extended-description
+//
+// We will not check whether these restrictions are violated, because that would
+// make it unnecessarily complex. We will, however, allow only the specified
+// character set.
+pub fn name_pattern() -> String {
+    let name_characters = r"[a-z0-9._-]+";
+    format!(
+        r"((?P<first>{name_chars})/)?(?P<second>{name_chars})",
+        name_chars = name_characters
+    )
+}
 lazy_static! {
-    static ref NAME: Regex =
-        Regex::new(r"^((?P<first>[[:word:]]+)/)?(?P<second>[[:word:]]+)$").unwrap();
+    static ref NAME: Regex = Regex::new(&format!("^{}$", name_pattern())).unwrap();
 }
 
 impl ImageName {
@@ -80,22 +95,11 @@ impl std::str::FromStr for ImageName {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("`{invalid}` is not a valid name of the form `<image>` or `<user>/<image>`")]
 pub struct ParseError {
     invalid: String,
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "`{}` is not a valid image name of the form `<image>` or `<user>/<image>`",
-            self.invalid
-        )
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod test {
@@ -105,13 +109,13 @@ mod test {
 
     proptest! {
         #[test]
-        fn parses_valid_official_name(image in r"[[:word:]]") {
+        fn parses_valid_official_name(image in r"[a-z0-9]+[-_\.][a-z0-9]+") {
             let expected = ImageName::Official { image: image.clone()};
             prop_assert_eq!(ImageName::parse(&image), Some(expected));
         }
 
         #[test]
-        fn parses_valid_user_name(first in r"[[:word:]]", second in r"[[:word:]]") {
+        fn parses_valid_user_name(first in r"[a-z0-9]+[-_\.][a-z0-9]+", second in r"[a-z0-9]+[-_\.][a-z0-9]+") {
             let raw = format!("{}/{}", first, second);
             let expected = ImageName::User { user: first, image: second};
             prop_assert_eq!(ImageName::parse(&raw), Some(expected));

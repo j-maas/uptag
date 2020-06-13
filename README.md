@@ -1,18 +1,36 @@
 # uptag: Update tags in Dockerfiles.
-[![GitHub Workflow Status](https://github.com/Y0hy0h/uptag/workflows/Build/badge.svg)](https://github.com/Y0hy0h/uptag/actions) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
+[![Test status](https://github.com/Y0hy0h/uptag/workflows/tests/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3Atests) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 
 Tired of manually looking up whether the base images you depend on have been updated?
 
 ```
 $ uptag check ./Dockerfile
-Report for Dockerfile at `/home/y0hy0h/wordpress/Dockerfile`:
+Report for Dockerfile at `/home/y0hy0h/Dockerfile`:
 
-1 with compatible update:
-bitnami/wordpress:5.3.2-r25
-               -> 5.3.2-r26
+1 breaking update(s):
+ubuntu:18.03
+    -> 20.10
+
+1 compatible update(s):
+ubuntu:18.03
+    -> 18.04
 ```
 
-# License
+`/home/y0hy0h/Dockerfile`:
+```Dockerfile
+# uptag --pattern "<!>.<>"
+FROM ubuntu:18.03
+```
+
+## Pattern syntax
+A pattern matches each character exactly. Use `<>` to match a number.  
+- `<>.<>.<>` will match `2.13.3` but not `2.13.3a`.
+- `debian-<>-beta` will match `debian-10-beta` but not `debian-10`.
+
+Indicate which numbers indicate breaking changes using `<!>`. Uptag will report breaking changes separately from compatible changes.  
+- Given the pattern `<!>.<>.<>`, if the current tag is `1.4.12`, then `1.6.12` and `1.4.13` are compatible updates, and `2.4.12` and `3.5.13` are breaking updates.
+
+## License
 Licensed under either of
 
  * Apache License, Version 2.0
