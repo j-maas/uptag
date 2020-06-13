@@ -27,15 +27,18 @@ pub trait TagFetcher {
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
 }
 
+/// Fetches tags from DockerHub.
 #[derive(Debug, Default)]
 pub struct DockerHubTagFetcher {
     search_limit: usize,
 }
 
+// API types from DockerHub
+
 #[derive(Deserialize, Debug)]
 struct Response {
-    next: Option<String>,
     results: Vec<TagInfo>,
+    next: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,26 +70,27 @@ impl TagFetcher for DockerHubTagFetcher {
 const FETCH_AMOUNT: usize = 25;
 
 pub struct DockerHubTagIterator {
-    fetched: VecDeque<Tag>,
     image_name: ImageName,
-    next_page: NextPage,
+    /// The tags of the current page.
+    fetched: VecDeque<Tag>,
+    current_page: CurrentPage,
 }
 
-enum NextPage {
+enum CurrentPage {
     First,
     Next(String),
     End,
 }
 
-impl NextPage {
+impl CurrentPage {
     fn get_url(&self, image: &ImageName) -> Option<String> {
-        use NextPage::*;
+        use CurrentPage::*;
         match self {
             First => Some(format!(
-                "https://hub.docker.com/v2/repositories/{}/tags/?page_size={}&page={}&ordering=last_updated",
-                Self::format_name_for_url(&image),
-                FETCH_AMOUNT,
-                1
+                "https://hub.docker.com/v2/repositories/{image}/tags/?page_size={amount}&page={page}&ordering=last_updated",
+                image=Self::format_name_for_url(&image),
+                amount=FETCH_AMOUNT,
+                page=1
             )),
             Next(page) => Some(page.clone()),
             End => None,
@@ -95,8 +99,10 @@ impl NextPage {
 
     fn format_name_for_url(name: &ImageName) -> String {
         match name {
-            ImageName::Official { image } => format!("library/{}", image),
-            ImageName::User { user, image } => format!("{}/{}", user, image),
+            ImageName::Official { image } => format!("library/{image}", image = image),
+            ImageName::User { user, image } => {
+                format!("{user}/{image}", user = user, image = image)
+            }
         }
     }
 }
@@ -106,7 +112,7 @@ impl DockerHubTagIterator {
         DockerHubTagIterator {
             fetched: VecDeque::with_capacity(FETCH_AMOUNT),
             image_name: image_name.clone(),
-            next_page: NextPage::First,
+            current_page: CurrentPage::First,
         }
     }
 }
@@ -115,57 +121,60 @@ type DockerHubTagIteratorError = reqwest::Error;
 
 impl Iterator for DockerHubTagIterator {
     type Item = Result<Tag, DockerHubTagFetcherError>;
+
     fn next(&mut self) -> Option<Self::Item> {
         if !self.fetched.is_empty() {
             self.fetched.pop_front().map(Ok)
         } else {
-            let maybe_url = self.next_page.get_url(&self.image_name);
+            let url = self.current_page.get_url(&self.image_name)?;
 
-            maybe_url.and_then(|url| {
-                log::info!("Fetching tags for {}:\n{}", self.image_name, url);
-                let response_result = reqwest::get(&url);
-                response_result
-                    .and_then(|mut response| {
-                        log::debug!("Received response with status `{}`.", response.status());
-                        log::debug!("Reading JSON body...");
-                        response.json::<Response>()
-                    })
-                    .map_err(DockerHubTagFetcherError::FetchError)
-                    .and_then(|response| {
-                        log::info!("Fetch was successful.");
+            log::info!(
+                "Fetching tags for {image}:\n{url}",
+                image = self.image_name,
+                url = url
+            );
+            let response_result = reqwest::get(&url);
+            response_result
+                .and_then(|mut response| {
+                    log::debug!("Received response with status `{}`.", response.status());
+                    log::debug!("Reading JSON body...");
+                    response.json::<Response>()
+                })
+                .map_err(DockerHubTagFetcherError::FetchError)
+                .and_then(|response| {
+                    log::info!("Fetch was successful.");
 
-                        let mut tags = response
-                            .results
-                            .into_iter()
-                            .map(|info| info.name)
-                            .collect::<VecDeque<_>>();
+                    let mut tags = response
+                        .results
+                        .into_iter()
+                        .map(|info| info.name)
+                        .collect::<VecDeque<_>>();
 
-                        // If the image name is invalid, we will get a 200 OK, but
-                        // with an empty tag list. For details, see https://github.com/Y0hy0h/uptag/issues/37
-                        if let NextPage::First = self.next_page {
-                            if tags.is_empty() {
-                                return Err(DockerHubTagFetcherError::EmptyTags(
-                                    self.image_name.clone(),
-                                ));
-                            }
+                    // If the image name is invalid, we will get a 200 OK, but
+                    // with an empty tag list. For details, see https://github.com/Y0hy0h/uptag/issues/37
+                    if let CurrentPage::First = self.current_page {
+                        if tags.is_empty() {
+                            return Err(DockerHubTagFetcherError::EmptyTags(
+                                self.image_name.clone(),
+                            ));
                         }
+                    }
 
-                        let next = tags.pop_front();
-                        self.fetched = tags;
+                    let next = tags.pop_front();
+                    self.fetched = tags;
 
-                        match response.next {
-                            Some(next_page) => {
-                                self.next_page = NextPage::Next(next_page);
-                            }
-                            None => {
-                                self.next_page = NextPage::End;
-                            }
+                    match response.next {
+                        Some(next_page) => {
+                            self.current_page = CurrentPage::Next(next_page);
                         }
+                        None => {
+                            self.current_page = CurrentPage::End;
+                        }
+                    }
 
-                        Ok(next)
-                    })
-                    .transpose()
-            })
+                    Ok(next)
+                })
+                .transpose()
         }
     }
 }
