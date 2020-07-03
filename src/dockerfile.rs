@@ -2,9 +2,9 @@ use itertools::{Either, Itertools};
 use thiserror::Error;
 
 use crate::image::Image;
+use crate::pattern;
 use crate::report::Report;
 use crate::tag_fetcher::TagFetcher;
-use crate::version_extractor;
 use crate::version_extractor::VersionExtractor;
 use crate::{display_error, FindUpdateError, Update, Uptag, Version};
 use matches::Matches;
@@ -73,7 +73,7 @@ where
     InvalidPattern {
         pattern: String,
         #[source]
-        source: version_extractor::Error,
+        source: pattern::Error,
     },
 }
 
@@ -248,7 +248,7 @@ mod matches {
     use regex::Regex;
 
     use crate::image::{Image, ImageName};
-    use crate::version_extractor;
+    use crate::pattern;
     use crate::version_extractor::{Tagged, VersionExtractor};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,7 +301,7 @@ mod matches {
         }
 
         #[allow(dead_code)]
-        pub fn extractor(&self) -> Option<Result<VersionExtractor, version_extractor::Error>> {
+        pub fn extractor(&self) -> Option<Result<VersionExtractor, pattern::Error>> {
             self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
         }
     }
@@ -320,7 +320,7 @@ mod matches {
         struct ExpectedMatches {
             image_name: ImageName,
             image_tag: &'static str,
-            extractor: Option<Result<VersionExtractor, version_extractor::Error>>,
+            extractor: Option<Result<VersionExtractor, pattern::Error>>,
         }
 
         impl<'t> PartialEq<Matches<'t>> for ExpectedMatches {
