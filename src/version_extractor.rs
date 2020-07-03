@@ -90,38 +90,6 @@ impl VersionExtractor {
             .collect();
         Version::new(parts)
     }
-
-    pub fn filter<'a, T>(
-        &'a self,
-        candidates: impl IntoIterator<Item = T> + 'a,
-    ) -> impl Iterator<Item = T> + 'a
-    where
-        T: Tagged,
-    {
-        candidates
-            .into_iter()
-            .filter(move |candidate| self.matches(candidate.tag()))
-    }
-
-    pub fn extract_iter<'a, T>(
-        &'a self,
-        candidates: impl IntoIterator<Item = T> + 'a,
-    ) -> impl Iterator<Item = (Version, T)> + 'a
-    where
-        T: Tagged,
-    {
-        candidates.into_iter().filter_map(move |candidate| {
-            self.extract_from(candidate.tag())
-                .map(|version| (version, candidate))
-        })
-    }
-
-    pub fn max<T>(&self, candidates: impl IntoIterator<Item = T>) -> Option<(Version, T)>
-    where
-        T: Tagged,
-    {
-        self.extract_iter(candidates).max_by(|a, b| a.0.cmp(&b.0))
-    }
 }
 
 pub type Error = pattern_parser::Error;
@@ -413,7 +381,6 @@ mod tests {
 
     use std::borrow::Borrow;
 
-    use itertools::Itertools;
     use lazy_static::lazy_static;
     use proptest::prelude::*;
 
@@ -493,80 +460,6 @@ mod tests {
             let candidate = format!("{}-debian", display_semver(version));
             let version = Version::from(version);
             prop_assert_eq!(extractor.extract_from(&candidate), Some(version));
-        }
-
-        #[test]
-        fn retains_all_matching_semver_tags(tags in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+")) {
-            let extractor = &STRICT_SEMVER;
-            let filtered: Vec<String> = extractor.filter(tags.clone()).collect();
-            prop_assert_eq!(filtered, tags);
-        }
-
-        #[test]
-        fn removes_all_non_matching_tags(
-            valids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+"),
-            invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian"))
-        {
-            let tags = valids.clone().into_iter().interleave(invalids.into_iter());
-            let extractor = &STRICT_SEMVER;
-            let filtered: Vec<String> = extractor.filter(tags).collect();
-            prop_assert_eq!(filtered, valids);
-        }
-
-        #[test]
-        fn extracts_all_matching_semver_tags(versions: Vec<SemVer>) {
-            let tags: Vec<String> = versions.iter().map(display_semver).collect();
-            let extractor = &STRICT_SEMVER;
-            let filtered: Vec<(Version, String)> = tags
-                .into_iter()
-                .filter_map(|tag| {
-                    extractor
-                        .extract_from(&tag)
-                        .map(|version| (version, tag))
-                })
-                .collect();
-            let expected: Vec<(Version, String)> = versions
-                .into_iter()
-                .map(
-                    |v| (Version::from(v), display_semver(v))
-                ).collect();
-            prop_assert_eq!(filtered, expected);
-        }
-
-        #[test]
-        fn extracts_only_matching_semver_tags(
-            versions: Vec<SemVer>,
-            invalids in vec!(r"[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+-debian")
-        ) {
-            let tags: Vec<String> = versions
-                .iter()
-                .map(display_semver)
-                .interleave(invalids.into_iter())
-                .collect();
-            let extractor = &STRICT_SEMVER;
-            let filtered: Vec<(Version, String)> = tags
-                .into_iter()
-                .filter_map(|tag| {
-                    extractor
-                        .extract_from(&tag)
-                        .map(|version| (version, tag))
-                })
-                .collect();
-            let expected: Vec<(Version, String)> = versions
-                .into_iter()
-                .map(
-                    |v| (Version::from(v), display_semver(v))
-                ).collect();
-            prop_assert_eq!(filtered, expected);
-        }
-
-        #[test]
-        fn returns_correct_maximum(versions: Vec<SemVer>) {
-            let tags = versions.iter().map(display_semver);
-            let extractor = &STRICT_SEMVER;
-            let max = extractor.max(tags).map(|(_, tag)| tag);
-            let expected_max = versions.into_iter().max().map(display_semver);
-            prop_assert_eq!(max, expected_max);
         }
     }
 

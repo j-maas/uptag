@@ -103,7 +103,10 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
 
     let result = if let Some(extractor) = opts.pattern {
         let tag_count = tags.len();
-        let result: Vec<String> = extractor.filter(tags).collect();
+        let result: Vec<String> = tags
+            .into_iter()
+            .filter(|tag| extractor.matches(tag))
+            .collect();
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
             tag_count,
