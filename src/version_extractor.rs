@@ -1,5 +1,6 @@
 use std::fmt;
 
+use itertools::Itertools;
 use regex::Regex;
 
 use crate::pattern;
@@ -47,8 +48,27 @@ where
 
 impl VersionExtractor {
     pub fn new(pattern: Pattern) -> VersionExtractor {
-        let regex = pattern.regex();
+        let regex = Self::regex_for_pattern(&pattern);
         VersionExtractor { pattern, regex }
+    }
+
+    pub fn regex_for_pattern(pattern: &Pattern) -> Regex {
+        use pattern::PatternPart::*;
+        let inner_regex = pattern
+            .parts()
+            .iter()
+            .map(|part| match part {
+                Literal(literal) => Self::escape_literal(&literal),
+                VersionPart => r"(\d+)".to_string(),
+            })
+            .join("");
+        let raw_regex = format!("^{}$", inner_regex);
+
+        Regex::new(&raw_regex).unwrap()
+    }
+
+    fn escape_literal(literal: &str) -> String {
+        literal.replace(".", r"\.")
     }
 
     pub fn parse<'a, S>(pattern: S) -> Result<VersionExtractor, pattern::Error>

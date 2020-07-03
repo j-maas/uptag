@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use regex::Regex;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -15,27 +14,12 @@ impl Pattern {
             .map_err(|error| Error::new(i, error))
     }
 
+    pub fn parts(&self) -> &Vec<PatternPart> {
+        &self.parts
+    }
+
     pub fn breaking_degree(&self) -> usize {
         self.breaking_degree
-    }
-
-    pub fn regex(&self) -> Regex {
-        use PatternPart::*;
-        let inner_regex = self
-            .parts
-            .iter()
-            .map(|part| match part {
-                Literal(literal) => Self::escape_literal(&literal),
-                VersionPart => r"(\d+)".to_string(),
-            })
-            .join("");
-        let raw_regex = format!("^{}$", inner_regex);
-
-        Regex::new(&raw_regex).unwrap()
-    }
-
-    fn escape_literal(literal: &str) -> String {
-        literal.replace(".", r"\.")
     }
 }
 
