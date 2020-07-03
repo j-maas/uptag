@@ -50,7 +50,7 @@ impl Dockerfile {
         })?;
         let current_version = extractor.extract_from(tag).ok_or(InvalidCurrentTag {
             tag: tag.to_string(),
-            pattern: extractor.to_string(),
+            pattern: extractor.pattern().to_string(),
         })?;
         Ok((current_version, extractor))
     }

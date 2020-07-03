@@ -64,7 +64,9 @@ where
                     continue;
                 }
 
-                match version_candidate.update_type(current_version, extractor.breaking_degree()) {
+                match version_candidate
+                    .update_type(current_version, extractor.pattern().breaking_degree())
+                {
                     UpdateType::Breaking => {
                         breaking_update = breaking_update.or(Some(tag_candidate));
                     }

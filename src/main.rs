@@ -111,7 +111,7 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
             "Fetched {} tags. Found {} matching `{}`:",
             tag_count,
             result.len(),
-            extractor
+            extractor.pattern()
         );
         result
     } else {

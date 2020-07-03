@@ -1,5 +1,3 @@
-use std::fmt;
-
 use itertools::Itertools;
 use regex::Regex;
 
@@ -19,12 +17,6 @@ impl PartialEq for VersionExtractor {
 }
 
 impl Eq for VersionExtractor {}
-
-impl fmt::Display for VersionExtractor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.pattern)
-    }
-}
 
 impl std::str::FromStr for VersionExtractor {
     type Err = String;
@@ -75,11 +67,12 @@ impl VersionExtractor {
     where
         S: 'a + AsRef<str>,
     {
-        Ok(VersionExtractor::new(Pattern::parse(pattern.as_ref())?))
+        let extractor = VersionExtractor::new(Pattern::parse(pattern.as_ref())?);
+        Ok(extractor)
     }
 
-    pub fn breaking_degree(&self) -> usize {
-        self.pattern.breaking_degree()
+    pub fn pattern(&self) -> &Pattern {
+        &self.pattern
     }
 
     pub fn matches<T>(&self, candidate: T) -> bool
