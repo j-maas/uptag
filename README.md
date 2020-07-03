@@ -1,5 +1,5 @@
 # uptag: Update tags in Dockerfiles.
-[![Test status](https://github.com/Y0hy0h/uptag/workflows/tests/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3Atests) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
+[![CI status](https://github.com/Y0hy0h/uptag/workflows/CI/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 
 Tired of manually looking up whether the base images you depend on have been updated?
 
