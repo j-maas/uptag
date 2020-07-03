@@ -65,7 +65,7 @@ where
             }
 
             if let Some(version_candidate) = extractor.extract_from(&tag_candidate) {
-                if &version_candidate < &current_version {
+                if version_candidate < current_version {
                     continue;
                 }
 
