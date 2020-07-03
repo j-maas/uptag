@@ -220,7 +220,7 @@ mod test {
     use crate::dockerfile::CheckError;
     use crate::image::ImageName;
     use crate::tag_fetcher::test::FetchError;
-    use crate::version_extractor::VersionExtractor;
+    use crate::version::extractor::VersionExtractor;
     use crate::Update;
 
     type TestDockerComposeResults = Vec<(

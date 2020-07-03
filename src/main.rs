@@ -13,7 +13,7 @@ use uptag::dockerfile::{Dockerfile, DockerfileReport};
 use uptag::image::ImageName;
 use uptag::report::UpdateLevel;
 use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
-use uptag::version_extractor::VersionExtractor;
+use uptag::version::extractor::VersionExtractor;
 use uptag::Uptag;
 
 #[derive(Debug, StructOpt)]

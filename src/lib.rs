@@ -4,14 +4,15 @@ pub mod image;
 pub mod pattern;
 pub mod report;
 pub mod tag_fetcher;
-pub mod version_extractor;
+pub mod version;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use image::Image;
 use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
-use version_extractor::{UpdateType, Version, VersionExtractor};
+use version::extractor::VersionExtractor;
+use version::{UpdateType, Version};
 
 pub struct Uptag<T>
 where
