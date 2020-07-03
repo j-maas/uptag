@@ -133,7 +133,19 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .with_context(|| format!("Failed to read file `{}`", display_canon(&file_path)))?;
 
     let uptag = Uptag::default();
-    let updates = Dockerfile::check_input(&uptag, &input);
+    let images = Dockerfile::parse(&input);
+    let updates = images.map(|(image, pattern_result)| {
+        let results = pattern_result
+            .context("Failed to get pattern")
+            .and_then(|pattern| {
+                let extractor = VersionExtractor::new(pattern);
+                let update = uptag
+                    .find_update(&image, &extractor)
+                    .context("Failed to fetch updates");
+                update.map(|up| (up, extractor))
+            });
+        (image, results)
+    });
 
     let dockerfile_report = DockerfileReport::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
@@ -176,7 +188,23 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
         let updates_result = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read file `{}`", clean_path(&path)))
-            .map(|input| Dockerfile::check_input(&uptag, &input).collect::<Vec<_>>());
+            .map(|input| {
+                let images = Dockerfile::parse(&input);
+                let updates = images.map(|(image, pattern_result)| {
+                    let results =
+                        pattern_result
+                            .context("Failed to get pattern")
+                            .and_then(|pattern| {
+                                let extractor = VersionExtractor::new(pattern);
+                                let update = uptag
+                                    .find_update(&image, &extractor)
+                                    .context("Failed to fetch updates");
+                                update.map(|up| (up, extractor))
+                            });
+                    (image, results)
+                });
+                updates.collect::<Vec<_>>()
+            });
 
         (service_name, path_display, updates_result)
     });

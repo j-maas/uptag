@@ -23,32 +23,26 @@ type ServiceName = String;
 type Tag = String;
 
 // Trait alias
-pub struct DockerComposeReport<T, E>
-where
-    T: 'static + std::error::Error,
-{
+pub struct DockerComposeReport<E> {
     #[allow(clippy::type_complexity)]
     pub report: Report<
         (ServiceName, PathDisplay, Vec<Image>),
         (ServiceName, PathDisplay, Vec<(Image, Tag)>),
-        (ServiceName, PathDisplay, DockerComposeResult<T, E>),
+        (ServiceName, PathDisplay, DockerComposeResult<E>),
     >,
 }
 
 type PathDisplay = String;
 
-type DockerComposeResult<T, E> = Result<Vec<(Image, ReportError<T>)>, E>;
+type DockerComposeResult<E> = Result<Vec<(Image, ReportError)>, E>;
 
-impl<T, E> DockerComposeReport<T, E>
-where
-    T: 'static + std::error::Error,
-{
+impl<E> DockerComposeReport<E> {
     pub fn from(
         results: impl Iterator<
             Item = (
                 ServiceName,
                 PathDisplay,
-                Result<impl IntoIterator<Item = DockerfileResult<T>>, E>,
+                Result<impl IntoIterator<Item = DockerfileResult>, E>,
             ),
         >,
     ) -> Self {
@@ -219,20 +213,13 @@ mod test {
 
     use crate::dockerfile::CheckError;
     use crate::image::ImageName;
-    use crate::tag_fetcher::test::FetchError;
     use crate::version::extractor::VersionExtractor;
     use crate::Update;
 
     type TestDockerComposeResults = Vec<(
         ServiceName,
         PathDisplay,
-        Result<
-            Vec<(
-                Image,
-                Result<(Update, VersionExtractor), CheckError<FetchError>>,
-            )>,
-            (),
-        >,
+        Result<Vec<(Image, Result<(Update, VersionExtractor), anyhow::Error>)>, ()>,
     )>;
 
     #[test]
@@ -257,7 +244,7 @@ mod test {
             name: ImageName::new(None, "error".to_string()),
             tag: "1".to_string(),
         };
-        let fail_error = CheckError::UnspecifiedPattern;
+        let fail_error: anyhow::Error = CheckError::UnspecifiedPattern.into();
 
         let alpine_service = "alpine".to_string();
         let alpine_path = "path/to/alpine".to_string();

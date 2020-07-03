@@ -12,7 +12,7 @@ use thiserror::Error;
 use image::Image;
 use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use version::extractor::VersionExtractor;
-use version::{UpdateType, Version};
+use version::UpdateType;
 
 pub struct Uptag<T>
 where
@@ -39,11 +39,15 @@ where
     pub fn find_update(
         &self,
         image: &Image,
-        // TODO: Extract current version in this function.
-        current_version: &Version,
         extractor: &VersionExtractor,
     ) -> Result<Update, FindUpdateError<T::FetchError>> {
         let current_tag = &image.tag;
+        let current_version = extractor.extract_from(&image.tag).ok_or(
+            FindUpdateError::CurrentTagPatternConflict {
+                current_tag: image.tag.to_string(),
+                pattern: extractor.pattern().to_string(),
+            },
+        )?;
 
         let mut breaking_update = None;
 
@@ -61,12 +65,12 @@ where
             }
 
             if let Some(version_candidate) = extractor.extract_from(&tag_candidate) {
-                if &version_candidate < current_version {
+                if &version_candidate < &current_version {
                     continue;
                 }
 
                 match version_candidate
-                    .update_type(current_version, extractor.pattern().breaking_degree())
+                    .update_type(&current_version, extractor.pattern().breaking_degree())
                 {
                     UpdateType::Breaking => {
                         breaking_update = breaking_update.or(Some(tag_candidate));
@@ -108,6 +112,8 @@ where
         current_tag: Tag,
         searched_amount: usize,
     },
+    #[error("The current tag `{current_tag}` does not match the pattern `{pattern}`")]
+    CurrentTagPatternConflict { current_tag: Tag, pattern: String },
 }
 
 pub fn display_error(error: &impl std::error::Error) -> String {
@@ -136,7 +142,6 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<!>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -149,7 +154,7 @@ mod test {
         );
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -167,7 +172,6 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<!>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -180,7 +184,7 @@ mod test {
         );
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -198,7 +202,6 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<!>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -212,7 +215,7 @@ mod test {
         );
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -230,7 +233,6 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -242,7 +244,7 @@ mod test {
         );
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -260,7 +262,6 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<!>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
@@ -272,7 +273,7 @@ mod test {
         );
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::CurrentTagNotEncountered {
@@ -289,13 +290,12 @@ mod test {
             tag: "14.04".to_string(),
         };
         let extractor = VersionExtractor::parse("<!>.<>").unwrap();
-        let current_version = extractor.extract_from(&image.tag).unwrap();
 
         // With an empty ArrayFetcher, all queries will return an error, since the image cannot be found.
         let fetcher = ArrayFetcher::new();
         let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &current_version, &extractor);
+        let result = uptag.find_update(&image, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::FetchError(

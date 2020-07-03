@@ -3,68 +3,38 @@ use thiserror::Error;
 
 use crate::image::Image;
 use crate::pattern;
+use crate::pattern::Pattern;
 use crate::report::Report;
-use crate::tag_fetcher::TagFetcher;
 use crate::version::extractor::VersionExtractor;
-use crate::{display_error, FindUpdateError, Update, Uptag, Version};
+use crate::{display_error, Update};
 use matches::Matches;
 
 pub struct Dockerfile {}
 
 impl Dockerfile {
-    pub fn check_input<'a, T>(
-        uptag: &'a Uptag<T>,
+    pub fn parse<'a>(
         input: &'a str,
-    ) -> impl DockerfileResults<T::FetchError> + 'a
-    where
-        T: TagFetcher,
-        T::FetchError: 'static,
-    {
-        Matches::iter(input).map(move |matches| {
+    ) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + 'a {
+        Matches::iter(input).map(|matches| {
             let image = matches.image();
-            let result =
-                Self::extract_check_info(&image.tag, &matches.pattern().map(|m| m.as_str()))
-                    .and_then(|(current_version, pattern_info)| {
-                        Ok(uptag
-                            .find_update(&image, &current_version, &pattern_info)
-                            .map(|update| (update, pattern_info))?)
-                    });
-
-            (image, result)
+            let pattern = matches
+                .pattern()
+                .ok_or(CheckError::UnspecifiedPattern)
+                .and_then(|m| {
+                    Pattern::parse(m.as_str()).map_err(|error| CheckError::InvalidPattern {
+                        pattern: m.as_str().to_string(),
+                        source: error,
+                    })
+                });
+            (image, pattern)
         })
-    }
-
-    fn extract_check_info<E>(
-        tag: &str,
-        pattern: &Option<&str>,
-    ) -> Result<(Version, VersionExtractor), CheckError<E>>
-    where
-        E: 'static + std::error::Error,
-    {
-        use CheckError::*;
-
-        let pattern = pattern.ok_or(UnspecifiedPattern)?;
-        let extractor = VersionExtractor::parse(pattern).map_err(|error| InvalidPattern {
-            pattern: pattern.to_string(),
-            source: error,
-        })?;
-        let current_version = extractor.extract_from(tag).ok_or(InvalidCurrentTag {
-            tag: tag.to_string(),
-            pattern: extractor.pattern().to_string(),
-        })?;
-        Ok((current_version, extractor))
     }
 }
 
 type Tag = String;
 
 #[derive(Debug, Error, PartialEq)]
-pub enum CheckError<E>
-where
-    E: 'static + std::error::Error,
-{
-    #[error(transparent)]
-    FindUpdateError(#[from] FindUpdateError<E>),
+pub enum CheckError {
     #[error("The current tag `{tag}` does not match the required pattern `{pattern}`")]
     InvalidCurrentTag { tag: Tag, pattern: String },
     #[error("Failed to find version pattern")]
@@ -77,37 +47,22 @@ where
     },
 }
 
-pub type DockerfileResult<T> = (Image, Result<(Update, VersionExtractor), CheckError<T>>);
+pub type DockerfileResult = (Image, Result<(Update, VersionExtractor), anyhow::Error>);
 
 // Trait alias
-pub trait DockerfileResults<T>: Iterator<Item = DockerfileResult<T>>
-where
-    T: 'static + std::error::Error,
-{
-}
+pub trait DockerfileResults: Iterator<Item = DockerfileResult> {}
 
-impl<A, T> DockerfileResults<T> for A
-where
-    A: Iterator<Item = DockerfileResult<T>>,
-    T: 'static + std::error::Error,
-{
-}
+impl<A> DockerfileResults for A where A: Iterator<Item = DockerfileResult> {}
 
 #[derive(Debug)]
-pub struct DockerfileReport<T>
-where
-    T: 'static + std::error::Error,
-{
-    pub report: Report<Image, (Image, Tag), (Image, ReportError<T>)>,
+pub struct DockerfileReport {
+    pub report: Report<Image, (Image, Tag), (Image, ReportError)>,
 }
 
 #[derive(Debug, Error, PartialEq)]
-pub enum ReportError<T>
-where
-    T: 'static + std::error::Error,
-{
-    #[error(transparent)]
-    CheckError(#[from] CheckError<T>),
+pub enum ReportError {
+    #[error("{0}")]
+    OtherError(String),
     #[error(
         "Failed to find the current tag `{current_tag}` in the latest {searched_amount} tags (either the tag is missing, or it might be in older tags beyond the search limit)" 
     )]
@@ -131,15 +86,12 @@ pub fn format_update(current_image: &Image, version_prefix: &'static str, new_ta
     )
 }
 
-impl<T> DockerfileReport<T>
-where
-    T: 'static + std::error::Error,
-{
-    pub fn from(results: impl DockerfileResults<T>) -> Self {
+impl DockerfileReport {
+    pub fn from(results: impl DockerfileResults) -> Self {
         let (successes, failures): (Vec<_>, Vec<_>) =
             results.partition_map(|(image, result)| match result {
                 Ok(info) => Either::Left((image, info)),
-                Err(error) => Either::Right((image, ReportError::CheckError(error))),
+                Err(error) => Either::Right((image, ReportError::OtherError(error.to_string()))),
             });
 
         let mut no_updates = Vec::new();
@@ -408,158 +360,8 @@ mod test {
     use super::*;
 
     use crate::image::ImageName;
-    use crate::tag_fetcher::test::{ArrayFetcher, FetchError};
 
-    type TestDockerfileResults = Vec<(
-        Image,
-        Result<(Update, VersionExtractor), CheckError<FetchError>>,
-    )>;
-
-    #[test]
-    fn finds_compatible_update_from_string() {
-        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
-
-        let image = Image {
-            name: ImageName::new(None, "ubuntu".to_string()),
-            tag: "14.04".to_string(),
-        };
-        let fetcher = ArrayFetcher::with(
-            image.name.clone(),
-            vec![
-                "14.12".to_string(),
-                "14.05".to_string(),
-                "14.04".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ],
-        );
-        let uptag = Uptag::new(fetcher);
-
-        let results = Dockerfile::check_input(&uptag, input);
-        let actual_updates = results
-            .map(|(image_name, result)| result.map(|(update, _)| (image_name, update)))
-            .collect::<Result<_, _>>();
-
-        assert_eq!(
-            actual_updates,
-            Ok(vec![(
-                image,
-                Update {
-                    breaking: None,
-                    compatible: Some("14.12".to_string())
-                }
-            )])
-        );
-    }
-
-    #[test]
-    fn finds_breaking_update_from_string() {
-        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
-
-        let image = Image {
-            name: ImageName::new(None, "ubuntu".to_string()),
-            tag: "14.04".to_string(),
-        };
-        let fetcher = ArrayFetcher::with(
-            image.name.clone(),
-            vec![
-                "15.01".to_string(),
-                "14.04".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ],
-        );
-        let uptag = Uptag::new(fetcher);
-
-        let results = Dockerfile::check_input(&uptag, input);
-        let actual_updates = results
-            .map(|(image, result)| result.map(|(update, _)| (image, update)))
-            .collect::<Result<_, _>>();
-
-        assert_eq!(
-            actual_updates,
-            Ok(vec![(
-                image,
-                Update {
-                    breaking: Some("15.01".to_string()),
-                    compatible: None
-                }
-            )])
-        );
-    }
-
-    #[test]
-    fn finds_compatible_and_breaking_update_from_string() {
-        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
-
-        let image = Image {
-            name: ImageName::new(None, "ubuntu".to_string()),
-            tag: "14.04".to_string(),
-        };
-        let fetcher = ArrayFetcher::with(
-            image.name.clone(),
-            vec![
-                "15.01".to_string(),
-                "14.12".to_string(),
-                "14.05".to_string(),
-                "14.04".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ],
-        );
-        let uptag = Uptag::new(fetcher);
-
-        let results = Dockerfile::check_input(&uptag, input);
-        let actual_updates = results
-            .map(|(image, result)| result.map(|(update, _)| (image, update)))
-            .collect::<Result<_, _>>();
-
-        assert_eq!(
-            actual_updates,
-            Ok(vec![(
-                image,
-                Update {
-                    breaking: Some("15.01".to_string()),
-                    compatible: Some("14.12".to_string()),
-                }
-            )])
-        );
-    }
-
-    #[test]
-    fn ignores_lesser_versions_from_string() {
-        let input = "# uptag --pattern \"<!>.<>\"\nFROM ubuntu:14.04";
-
-        let image = Image {
-            name: ImageName::new(None, "ubuntu".to_string()),
-            tag: "14.04".to_string(),
-        };
-        let fetcher = ArrayFetcher::with(
-            image.name.clone(),
-            vec![
-                "14.04".to_string(),
-                "14.03".to_string(),
-                "13.03".to_string(),
-            ],
-        );
-        let uptag = Uptag::new(fetcher);
-
-        let results = Dockerfile::check_input(&uptag, input);
-        let actual_updates = results
-            .map(|(image, result)| result.map(|(update, _)| (image, update)))
-            .collect::<Result<_, _>>();
-
-        assert_eq!(
-            actual_updates,
-            Ok(vec![(
-                image,
-                Update {
-                    breaking: None,
-                    compatible: None
-                }
-            )])
-        );
-    }
+    type TestDockerfileResults = Vec<(Image, Result<(Update, VersionExtractor), anyhow::Error>)>;
 
     #[test]
     fn generates_dockerfile_report() {
@@ -580,7 +382,7 @@ mod test {
             name: ImageName::new(None, "error".to_string()),
             tag: "1".to_string(),
         };
-        let fail_error = CheckError::UnspecifiedPattern;
+        let fail_error: anyhow::Error = CheckError::UnspecifiedPattern.into();
 
         let input: TestDockerfileResults = vec![
             (success_image.clone(), Ok(success_update)),
