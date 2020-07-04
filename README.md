@@ -9,7 +9,7 @@ Report for Dockerfile at `/home/y0hy0h/Dockerfile`:
 
 1 breaking update(s):
 ubuntu:18.03
-    -> 20.10
+   -!> 20.10
 
 1 compatible update(s):
 ubuntu:18.03
