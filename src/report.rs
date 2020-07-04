@@ -327,7 +327,7 @@ pub mod docker_compose {
                     format!(
                         "{}\n{}",
                         display_service(service, service_path),
-                        display_updates(updates.iter()),
+                        display_updates("-!>", updates.iter()),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -339,7 +339,7 @@ pub mod docker_compose {
                     format!(
                         "{}\n{}",
                         display_service(service, service_path),
-                        display_updates(updates.iter()),
+                        display_updates("->", updates.iter()),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -414,10 +414,13 @@ pub mod docker_compose {
         format!("  {} (at `{}`):", service, service_path)
     }
 
-    fn display_updates<'a>(updates: impl Iterator<Item = &'a (Image, String)>) -> String {
+    fn display_updates<'a>(
+        version_prefix: &'static str,
+        updates: impl Iterator<Item = &'a (Image, String)>,
+    ) -> String {
         updates
             .map(|(image, update)| {
-                let output = format_update(image, "->", update);
+                let output = format_update(image, version_prefix, update);
                 let indented_output = output.replace("\n", "\n    ");
                 format!("  - {}", indented_output)
             })
