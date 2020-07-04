@@ -2,10 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use env_logger;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use serde_yaml;
 use structopt::StructOpt;
 
 use uptag::docker_compose::{DockerCompose, DockerComposeReport};
@@ -233,15 +231,16 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 ///
 /// Assumes that the path is canonicalized.
 fn display_canon(path: &std::path::Path) -> String {
-    let mut output = path.display().to_string();
-
-    #[cfg(target_os = "windows")]
-    {
+    if cfg!(not(target_os = "windows")) {
+        path.display().to_string()
+    } else {
+        let mut output = path.display().to_string();
         // Removes the extended-length prefix.
         // See https://github.com/rust-lang/rust/issues/42869 for details.
         output.replace_range(..4, "");
+
+        output
     }
-    output
 }
 
 lazy_static! {
