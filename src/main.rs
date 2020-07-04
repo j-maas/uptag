@@ -127,8 +127,12 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .file
         .canonicalize()
         .with_context(|| format!("Failed to find file `{}`", clean_path(&opts.file)))?;
-    let input = fs::read_to_string(&file_path)
-        .with_context(|| format!("Failed to read file `{}`", display_canon(&file_path)))?;
+    let input = fs::read_to_string(&file_path).with_context(|| {
+        format!(
+            "Failed to read file `{}`",
+            display_canonicalized(&file_path)
+        )
+    })?;
 
     let uptag = Uptag::default();
     let images = Dockerfile::parse(&input);
@@ -150,7 +154,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
 
     println!(
         "Report for Dockerfile at `{}`:\n",
-        display_canon(&file_path)
+        display_canonicalized(&file_path)
     );
     if !dockerfile_report.report.failures.is_empty() {
         eprintln!("{}", dockerfile_report.display_failures());
@@ -169,7 +173,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let compose_file = fs::File::open(&compose_file_path).with_context(|| {
         format!(
             "Failed to read file `{}`",
-            display_canon(&compose_file_path)
+            display_canonicalized(&compose_file_path)
         )
     })?;
     let compose: DockerCompose =
@@ -181,7 +185,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         let path = compose_dir.join(service.build).join("Dockerfile");
         let path_display = path
             .canonicalize()
-            .map(|path| display_canon(&path))
+            .map(|path| display_canonicalized(&path))
             .unwrap_or_else(|_| clean_path(&path));
 
         let updates_result = fs::read_to_string(&path)
@@ -213,7 +217,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     println!(
         "Report for Docker Compose file at `{}`:\n",
-        display_canon(&compose_file_path)
+        display_canonicalized(&compose_file_path)
     );
     if !docker_compose_report.report.failures.is_empty() {
         eprintln!(
@@ -230,7 +234,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 /// Generates a String that displays the path more prettily than `path.display()`.
 ///
 /// Assumes that the path is canonicalized.
-fn display_canon(path: &std::path::Path) -> String {
+fn display_canonicalized(path: &std::path::Path) -> String {
     if cfg!(not(target_os = "windows")) {
         path.display().to_string()
     } else {
