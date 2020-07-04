@@ -108,7 +108,7 @@ where
     #[error("Failed to fetch tags")]
     FetchError(#[from] E),
     // TODO: Attach possible breaking update.
-    #[error("Failed to find current tag `{current_tag}` in the latest {searched_amount} tags")]
+    #[error("Failed to find current tag `{current_tag}` in the latest {searched_amount} tags (there might be compatible updates after that)")]
     CurrentTagNotEncountered {
         current_tag: Tag,
         searched_amount: usize,
