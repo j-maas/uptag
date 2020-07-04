@@ -19,6 +19,7 @@ thiserror = "1.0.20"
 serde_yaml = "0.8.13"
 indexmap = { version = "1.4.0", features = ["serde-1"] }
 nom = "5.1.2"
+marked-yaml = "0.1.0"
 
 [dev-dependencies]
 proptest = "0.10.0"
