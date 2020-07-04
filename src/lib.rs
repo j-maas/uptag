@@ -107,6 +107,7 @@ where
 {
     #[error("Failed to fetch tags")]
     FetchError(#[from] E),
+    // TODO: Attach possible breaking update.
     #[error("Failed to find current tag `{current_tag}` in the latest {searched_amount} tags")]
     CurrentTagNotEncountered {
         current_tag: Tag,
@@ -114,6 +115,17 @@ where
     },
     #[error("The current tag `{current_tag}` does not match the pattern `{pattern}`")]
     CurrentTagPatternConflict { current_tag: Tag, pattern: String },
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum ProcessError<E>
+where
+    E: 'static + std::error::Error,
+{
+    #[error(transparent)]
+    CheckError(#[from] dockerfile::CheckError),
+    #[error(transparent)]
+    FindUpdateError(#[from] FindUpdateError<E>),
 }
 
 pub fn display_error(error: &impl std::error::Error) -> String {

@@ -5,14 +5,17 @@ use anyhow::{Context, Result};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use structopt::StructOpt;
+use thiserror::Error;
 
-use uptag::docker_compose::{DockerCompose, DockerComposeReport};
-use uptag::dockerfile::{Dockerfile, DockerfileReport};
+use uptag::docker_compose::DockerCompose;
+use uptag::dockerfile::{CheckError, Dockerfile};
 use uptag::image::ImageName;
-use uptag::report::UpdateLevel;
+use uptag::report::{
+    docker_compose::DockerComposeReport, dockerfile::DockerfileReport, UpdateLevel,
+};
 use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use uptag::version::extractor::VersionExtractor;
-use uptag::Uptag;
+use uptag::{FindUpdateError, Uptag};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -138,13 +141,13 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     let images = Dockerfile::parse(&input);
     let updates = images.map(|(image, pattern_result)| {
         let results = pattern_result
-            .context("Failed to get pattern")
+            .map_err(UpdateError::Check)
             .and_then(|pattern| {
                 let extractor = VersionExtractor::new(pattern);
-                let update = uptag
+
+                uptag
                     .find_update(&image, &extractor)
-                    .context("Failed to fetch updates");
-                update.map(|up| (up, extractor))
+                    .map_err(UpdateError::FindUpdate)
             });
         (image, results)
     });
@@ -163,6 +166,23 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     println!("{}", dockerfile_report.display_successes());
 
     Ok(exit_code)
+}
+
+#[derive(Debug, Error)]
+enum UpdateError<E>
+where
+    E: 'static + std::error::Error,
+{
+    #[error(transparent)]
+    Check(#[from] CheckError),
+    #[error(transparent)]
+    FindUpdate(#[from] FindUpdateError<E>),
+    #[error("Failed to find file `{file}`")]
+    IO {
+        file: String,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
@@ -189,20 +209,22 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
             .unwrap_or_else(|_| clean_path(&path));
 
         let updates_result = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read file `{}`", clean_path(&path)))
+            .map_err(|error| UpdateError::IO {
+                file: clean_path(&path),
+                source: error,
+            })
             .map(|input| {
                 let images = Dockerfile::parse(&input);
                 let updates = images.map(|(image, pattern_result)| {
-                    let results =
-                        pattern_result
-                            .context("Failed to get pattern")
-                            .and_then(|pattern| {
-                                let extractor = VersionExtractor::new(pattern);
-                                let update = uptag
-                                    .find_update(&image, &extractor)
-                                    .context("Failed to fetch updates");
-                                update.map(|up| (up, extractor))
-                            });
+                    let results = pattern_result
+                        .map_err(UpdateError::Check)
+                        .and_then(|pattern| {
+                            let extractor = VersionExtractor::new(pattern);
+
+                            uptag
+                                .find_update(&image, &extractor)
+                                .map_err(UpdateError::FindUpdate)
+                        });
                     (image, results)
                 });
                 updates.collect::<Vec<_>>()
