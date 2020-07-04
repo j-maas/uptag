@@ -5,26 +5,22 @@ use crate::pattern;
 use crate::pattern::Pattern;
 use matches::Matches;
 
-pub struct Dockerfile {}
-
-impl Dockerfile {
-    pub fn parse<'a>(
-        input: &'a str,
-    ) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + 'a {
-        Matches::iter(input).map(|matches| {
-            let image = matches.image();
-            let pattern = matches
-                .pattern()
-                .ok_or(CheckError::UnspecifiedPattern)
-                .and_then(|m| {
-                    Pattern::parse(m.as_str()).map_err(|error| CheckError::InvalidPattern {
-                        pattern: m.as_str().to_string(),
-                        source: error,
-                    })
-                });
-            (image, pattern)
-        })
-    }
+pub fn parse<'a>(
+    input: &'a str,
+) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + 'a {
+    Matches::iter(input).map(|matches| {
+        let image = matches.image();
+        let pattern = matches
+            .pattern()
+            .ok_or(CheckError::UnspecifiedPattern)
+            .and_then(|m| {
+                Pattern::parse(m.as_str()).map_err(|error| CheckError::InvalidPattern {
+                    pattern: m.as_str().to_string(),
+                    source: error,
+                })
+            });
+        (image, pattern)
+    })
 }
 
 type Tag = String;

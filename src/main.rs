@@ -8,7 +8,8 @@ use structopt::StructOpt;
 use thiserror::Error;
 
 use uptag::docker_compose::DockerCompose;
-use uptag::dockerfile::{CheckError, Dockerfile};
+use uptag::dockerfile;
+use uptag::dockerfile::CheckError;
 use uptag::image::ImageName;
 use uptag::report::{
     docker_compose::DockerComposeReport, dockerfile::DockerfileReport, UpdateLevel,
@@ -150,7 +151,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     })?;
 
     let uptag = Uptag::default();
-    let images = Dockerfile::parse(&input);
+    let images = dockerfile::parse(&input);
     let updates = images.map(|(image, pattern_result)| {
         let results = pattern_result
             .map_err(UpdateError::Check)
@@ -226,7 +227,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                 source: error,
             })
             .map(|input| {
-                let images = Dockerfile::parse(&input);
+                let images = dockerfile::parse(&input);
                 let updates = images.map(|(image, pattern_result)| {
                     let results = pattern_result
                         .map_err(UpdateError::Check)
