@@ -95,19 +95,27 @@ impl ExitCode {
 }
 
 fn fetch(opts: FetchOpts) -> Result<ExitCode> {
-    let fetcher = DockerHubTagFetcher::new();
-    let tags = fetcher
-        .fetch(&opts.image)
-        .take(opts.amount)
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to fetch tags")?;
+    let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
+    let tags = fetcher.fetch(&opts.image);
 
     let result = if let Some(extractor) = opts.pattern {
-        let tag_count = tags.len();
+        let mut tag_count = 0;
         let result: Vec<String> = tags
-            .into_iter()
-            .filter(|tag| extractor.matches(tag))
-            .collect();
+            .filter_map(|tag_result| {
+                tag_count += 1;
+                tag_result
+                    .map(|tag| {
+                        if extractor.matches(&tag) {
+                            Some(tag)
+                        } else {
+                            None
+                        }
+                    })
+                    .transpose()
+            })
+            .take(opts.amount)
+            .collect::<Result<_, _>>()
+            .context("Failed to fetch tags")?;
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
             tag_count,
@@ -116,8 +124,12 @@ fn fetch(opts: FetchOpts) -> Result<ExitCode> {
         );
         result
     } else {
-        println!("Fetched {} tags:", tags.len());
-        tags
+        let fetched = tags
+            .take(opts.amount)
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to fetch tags")?;
+        println!("Fetched {} tags:", fetched.len());
+        fetched
     };
 
     println!("{}", result.join("\n"));
