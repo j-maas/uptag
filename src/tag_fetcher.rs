@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
 
-use log;
-use reqwest;
 use serde::Deserialize;
 use thiserror::Error;
 

@@ -2,19 +2,21 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use env_logger;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use serde_yaml;
 use structopt::StructOpt;
+use thiserror::Error;
 
-use uptag::docker_compose::{DockerCompose, DockerComposeReport};
-use uptag::dockerfile::{Dockerfile, DockerfileReport};
+use uptag::docker_compose::DockerCompose;
+use uptag::dockerfile;
+use uptag::dockerfile::CheckError;
 use uptag::image::ImageName;
-use uptag::report::UpdateLevel;
+use uptag::report::{
+    docker_compose::DockerComposeReport, dockerfile::DockerfileReport, UpdateLevel,
+};
 use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
-use uptag::version_extractor::VersionExtractor;
-use uptag::Uptag;
+use uptag::version::extractor::VersionExtractor;
+use uptag::{FindUpdateError, Uptag};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -94,26 +96,41 @@ impl ExitCode {
 }
 
 fn fetch(opts: FetchOpts) -> Result<ExitCode> {
-    let fetcher = DockerHubTagFetcher::new();
-    let tags = fetcher
-        .fetch(&opts.image)
-        .take(opts.amount)
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to fetch tags")?;
+    let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
+    let tags = fetcher.fetch(&opts.image);
 
     let result = if let Some(extractor) = opts.pattern {
-        let tag_count = tags.len();
-        let result: Vec<String> = extractor.filter(tags).collect();
+        let mut tag_count = 0;
+        let result: Vec<String> = tags
+            .filter_map(|tag_result| {
+                tag_count += 1;
+                tag_result
+                    .map(|tag| {
+                        if extractor.matches(&tag) {
+                            Some(tag)
+                        } else {
+                            None
+                        }
+                    })
+                    .transpose()
+            })
+            .take(opts.amount)
+            .collect::<Result<_, _>>()
+            .context("Failed to fetch tags")?;
         println!(
             "Fetched {} tags. Found {} matching `{}`:",
             tag_count,
             result.len(),
-            extractor
+            extractor.pattern()
         );
         result
     } else {
-        println!("Fetched {} tags:", tags.len());
-        tags
+        let fetched = tags
+            .take(opts.amount)
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to fetch tags")?;
+        println!("Fetched {} tags:", fetched.len());
+        fetched
     };
 
     println!("{}", result.join("\n"));
@@ -126,18 +143,34 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         .file
         .canonicalize()
         .with_context(|| format!("Failed to find file `{}`", clean_path(&opts.file)))?;
-    let input = fs::read_to_string(&file_path)
-        .with_context(|| format!("Failed to read file `{}`", display_canon(&file_path)))?;
+    let input = fs::read_to_string(&file_path).with_context(|| {
+        format!(
+            "Failed to read file `{}`",
+            display_canonicalized(&file_path)
+        )
+    })?;
 
     let uptag = Uptag::default();
-    let updates = Dockerfile::check_input(&uptag, &input);
+    let images = dockerfile::parse(&input);
+    let updates = images.map(|(image, pattern_result)| {
+        let results = pattern_result
+            .map_err(UpdateError::Check)
+            .and_then(|pattern| {
+                let extractor = VersionExtractor::new(pattern);
+
+                uptag
+                    .find_update(&image, &extractor)
+                    .map_err(UpdateError::FindUpdate)
+            });
+        (image, results)
+    });
 
     let dockerfile_report = DockerfileReport::from(updates);
     let exit_code = ExitCode::from(dockerfile_report.report.update_level());
 
     println!(
         "Report for Dockerfile at `{}`:\n",
-        display_canon(&file_path)
+        display_canonicalized(&file_path)
     );
     if !dockerfile_report.report.failures.is_empty() {
         eprintln!("{}", dockerfile_report.display_failures());
@@ -148,6 +181,23 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     Ok(exit_code)
 }
 
+#[derive(Debug, Error)]
+enum UpdateError<E>
+where
+    E: 'static + std::error::Error,
+{
+    #[error(transparent)]
+    Check(#[from] CheckError),
+    #[error(transparent)]
+    FindUpdate(#[from] FindUpdateError<E>),
+    #[error("Failed to find file `{file}`")]
+    IO {
+        file: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let compose_file_path = opts
         .file
@@ -156,7 +206,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let compose_file = fs::File::open(&compose_file_path).with_context(|| {
         format!(
             "Failed to read file `{}`",
-            display_canon(&compose_file_path)
+            display_canonicalized(&compose_file_path)
         )
     })?;
     let compose: DockerCompose =
@@ -168,12 +218,30 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         let path = compose_dir.join(service.build).join("Dockerfile");
         let path_display = path
             .canonicalize()
-            .map(|path| display_canon(&path))
+            .map(|path| display_canonicalized(&path))
             .unwrap_or_else(|_| clean_path(&path));
 
         let updates_result = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read file `{}`", clean_path(&path)))
-            .map(|input| Dockerfile::check_input(&uptag, &input).collect::<Vec<_>>());
+            .map_err(|error| UpdateError::IO {
+                file: clean_path(&path),
+                source: error,
+            })
+            .map(|input| {
+                let images = dockerfile::parse(&input);
+                let updates = images.map(|(image, pattern_result)| {
+                    let results = pattern_result
+                        .map_err(UpdateError::Check)
+                        .and_then(|pattern| {
+                            let extractor = VersionExtractor::new(pattern);
+
+                            uptag
+                                .find_update(&image, &extractor)
+                                .map_err(UpdateError::FindUpdate)
+                        });
+                    (image, results)
+                });
+                updates.collect::<Vec<_>>()
+            });
 
         (service_name, path_display, updates_result)
     });
@@ -184,7 +252,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     println!(
         "Report for Docker Compose file at `{}`:\n",
-        display_canon(&compose_file_path)
+        display_canonicalized(&compose_file_path)
     );
     if !docker_compose_report.report.failures.is_empty() {
         eprintln!(
@@ -201,16 +269,17 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 /// Generates a String that displays the path more prettily than `path.display()`.
 ///
 /// Assumes that the path is canonicalized.
-fn display_canon(path: &std::path::Path) -> String {
-    let mut output = path.display().to_string();
-
-    #[cfg(target_os = "windows")]
-    {
+fn display_canonicalized(path: &std::path::Path) -> String {
+    if cfg!(not(target_os = "windows")) {
+        path.display().to_string()
+    } else {
+        let mut output = path.display().to_string();
         // Removes the extended-length prefix.
         // See https://github.com/rust-lang/rust/issues/42869 for details.
         output.replace_range(..4, "");
+
+        output
     }
-    output
 }
 
 lazy_static! {
