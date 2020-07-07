@@ -17,7 +17,7 @@ pub enum BuildContext<I, P, F> {
     Folder(P, F),
 }
 
-pub fn parse(input: &str) -> Result<Vec<(ServiceName, BuildContext<Pattern, PathBuf, ()>)>, Error> {
+pub fn parse(input: &str) -> Result<Vec<ServiceResult>, Error> {
     use Error::*;
     let parsed = marked_yaml::parse_yaml(0, input)?;
     let root = parsed.as_mapping().unwrap(); // root is always a mapping
@@ -79,6 +79,8 @@ pub fn parse(input: &str) -> Result<Vec<(ServiceName, BuildContext<Pattern, Path
         })
         .collect()
 }
+
+type ServiceResult = (ServiceName, BuildContext<Pattern, PathBuf, ()>);
 
 #[derive(Debug, Error, PartialEq)]
 pub enum Error {

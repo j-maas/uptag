@@ -11,13 +11,13 @@ use docker_compose::BuildContext;
 use uptag::docker_compose;
 use uptag::dockerfile;
 use uptag::dockerfile::CheckError;
-use uptag::image::{Image, ImageName};
+use uptag::image::ImageName;
 use uptag::report::{
     docker_compose::DockerComposeReport, dockerfile::DockerfileReport, UpdateLevel,
 };
 use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use uptag::version::extractor::VersionExtractor;
-use uptag::{FindUpdateError, Update, Uptag};
+use uptag::{FindUpdateError, Uptag};
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -262,7 +262,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
             }
         });
 
-    let docker_compose_report = DockerComposeReport::from(updates.into_iter());
+    let docker_compose_report = DockerComposeReport::from(updates);
 
     let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 

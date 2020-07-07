@@ -393,14 +393,11 @@ pub mod docker_compose {
                 .no_updates
                 .iter()
                 .map(|(service, build_context)| match build_context {
-                    BuildContext::Image(image, ()) => format!(
-                        "{service}",
-                        service = display_service_image(service, &image)
-                    ),
+                    BuildContext::Image(image, ()) => display_service_image(service, &image),
                     BuildContext::Folder(service_path, images) => format!(
                         "{service}\n{images}",
                         service = display_service_folder(service, service_path),
-                        images = display_images(images.into_iter().map(|(image, ())| image)),
+                        images = display_images(images.iter().map(|(image, ())| image)),
                     ),
                 })
                 .collect::<Vec<_>>();
@@ -497,7 +494,7 @@ pub mod docker_compose {
             .join("\n")
     }
 
-    fn display_update(image: &Image, version_prefix: &'static str, update: &Tag) -> String {
+    fn display_update(image: &Image, version_prefix: &'static str, update: &str) -> String {
         let output = format_update(image, version_prefix, update);
         let indented_output = output.replace("\n", "\n    ");
         format!("  - {}", indented_output)

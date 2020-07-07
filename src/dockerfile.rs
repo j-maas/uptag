@@ -95,7 +95,6 @@ pub mod matches {
             }
         }
 
-        #[allow(dead_code)]
         pub fn extractor(&self) -> Option<Result<VersionExtractor, pattern::Error>> {
             self.pattern.map(|m| VersionExtractor::parse(m.as_str()))
         }
