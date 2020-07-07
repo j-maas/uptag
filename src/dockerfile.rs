@@ -39,7 +39,7 @@ pub enum CheckError {
     },
 }
 
-mod matches {
+pub mod matches {
     use lazy_static::lazy_static;
     use regex::Regex;
 
@@ -63,7 +63,6 @@ mod matches {
     }
 
     impl<'t> Matches<'t> {
-        #[allow(dead_code)]
         pub fn first(dockerfile: &'t str) -> Option<Matches<'t>> {
             STATEMENT.captures(dockerfile).map(Self::from_captures)
         }
