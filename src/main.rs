@@ -267,7 +267,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
     let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
     println!(
-        "Report for Docker Compose file at `{}`:\n",
+        "Report for docker-compose file at `{}`:\n",
         display_canonicalized(&compose_file_path)
     );
     if !docker_compose_report.report.failures.is_empty() {
