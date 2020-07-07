@@ -551,6 +551,11 @@ pub mod docker_compose {
                 breaking: Some(breaking_tag.clone()),
             };
 
+            let fail_service = "debian".to_string();
+            let fail_service_path = "path/to/debian".to_string();
+            let fail_service_error = CheckError::UnspecifiedPattern; // This is not a realistic error. It could be an IO error when reading the path to the Dockerfile. But I was too lazy to introduce a common error type to hold both `CheckError`s and IO errors.
+            let fail_service_error_copy = CheckError::UnspecifiedPattern;
+
             let node_service = "node".to_string();
             let node_image = Image {
                 name: ImageName::new(None, "node".to_string()),
@@ -562,7 +567,13 @@ pub mod docker_compose {
                 breaking: None,
             };
 
-            // TODO: Test image build context.
+            let image_fail_service = "python".to_string();
+            let image_fail_image = Image {
+                name: ImageName::new(None, "python".to_string()),
+                tag: "3.8.3".to_string(),
+            };
+            let image_fail_error = CheckError::UnspecifiedPattern;
+            let image_fail_error_copy = CheckError::UnspecifiedPattern;
 
             let input = vec![
                 (
@@ -583,8 +594,16 @@ pub mod docker_compose {
                     ),
                 ),
                 (
+                    fail_service.clone(),
+                    BuildContext::Folder(fail_service_path, Err(fail_service_error)),
+                ),
+                (
                     node_service.clone(),
                     BuildContext::Image(node_image.clone(), Ok(node_compatible_update)),
+                ),
+                (
+                    image_fail_service.clone(),
+                    BuildContext::Image(image_fail_image.clone(), Err(image_fail_error)),
                 ),
             ];
 
@@ -605,16 +624,22 @@ pub mod docker_compose {
                     )
                 ]
             );
-            // TODO: Test Err case.
             assert_eq!(
                 result.report.failures,
-                vec![(
-                    ubuntu_service,
-                    Ok(BuildContext::Folder(
-                        ubuntu_path,
-                        vec![(fail_image, fail_error_copy)]
-                    ))
-                )]
+                vec![
+                    (
+                        ubuntu_service,
+                        Ok(BuildContext::Folder(
+                            ubuntu_path,
+                            vec![(fail_image, fail_error_copy)]
+                        ),)
+                    ),
+                    (fail_service, Err(fail_service_error_copy)),
+                    (
+                        image_fail_service,
+                        Ok(BuildContext::Image(image_fail_image, image_fail_error_copy))
+                    )
+                ]
             );
             assert_eq!(
                 result.report.breaking_updates,
