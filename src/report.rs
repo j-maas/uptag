@@ -1,3 +1,5 @@
+use crate::Update;
+
 #[derive(Debug)]
 pub struct Report<NoUpdate, Update, Error> {
     pub no_updates: Vec<NoUpdate>,
@@ -28,6 +30,8 @@ pub enum UpdateLevel {
     BreakingUpdate,
     Failure,
 }
+
+type UpdateResult<E> = Result<Update, E>;
 
 pub mod dockerfile {
     use super::*;
@@ -66,7 +70,7 @@ pub mod dockerfile {
     where
         E: 'static + std::error::Error,
     {
-        pub fn from(results: impl Iterator<Item = (Image, Result<Update, E>)>) -> Self {
+        pub fn from(results: impl Iterator<Item = (Image, UpdateResult<E>)>) -> Self {
             let (successes, failures): (Vec<_>, Vec<_>) =
                 results.partition_map(|(image, result)| match result {
                     Ok(info) => Either::Left((image, info)),
@@ -139,21 +143,21 @@ pub mod dockerfile {
 
             if !breaking_updates.is_empty() {
                 output.push(format!(
-                    "{} with breaking update:\n{}",
+                    "{} breaking update(s):\n{}",
                     breaking_updates.len(),
                     breaking_updates.join("\n")
                 ));
             }
             if !compatible_updates.is_empty() {
                 output.push(format!(
-                    "{} with compatible update:\n{}",
+                    "{} compatible update(s):\n{}",
                     compatible_updates.len(),
                     compatible_updates.join("\n")
                 ));
             }
             if !no_updates.is_empty() {
                 output.push(format!(
-                    "{} with no updates:\n{}",
+                    "{} without updates:\n{}",
                     no_updates.len(),
                     no_updates.join("\n")
                 ));
@@ -170,7 +174,7 @@ pub mod dockerfile {
                 .map(|(image, error)| format!("{}: {}", image, display_error(error)))
                 .collect::<Vec<_>>();
 
-            format!("{} with failure:\n{}", failures.len(), failures.join("\n"))
+            format!("{} failure(s):\n{}", failures.len(), failures.join("\n"))
         }
     }
 
@@ -232,27 +236,26 @@ pub mod docker_compose {
 
     use itertools::Itertools;
 
+    use super::dockerfile::{format_update, DockerfileReport};
     use crate::{
         display_error,
-        docker_compose::{ServiceName, Tag},
+        docker_compose::{BuildContext, ServiceName},
         image::Image,
-        Update,
+        Tag,
     };
-    use dockerfile::{format_update, DockerfileReport};
 
     // Trait alias
     pub struct DockerComposeReport<E> {
         #[allow(clippy::type_complexity)]
         pub report: Report<
-            (ServiceName, PathDisplay, Vec<Image>),
-            (ServiceName, PathDisplay, Vec<(Image, Tag)>),
-            (ServiceName, PathDisplay, DockerComposeResult<E>),
+            (ServiceName, BuildContext<(), String, Vec<(Image, ())>>),
+            (ServiceName, BuildContext<Tag, String, Vec<(Image, Tag)>>),
+            (
+                ServiceName,
+                Result<BuildContext<E, String, Vec<(Image, E)>>, E>,
+            ),
         >,
     }
-
-    type PathDisplay = String;
-
-    type DockerComposeResult<E> = Result<Vec<(Image, E)>, E>;
 
     impl<E> DockerComposeReport<E>
     where
@@ -262,8 +265,7 @@ pub mod docker_compose {
             results: impl Iterator<
                 Item = (
                     ServiceName,
-                    PathDisplay,
-                    Result<impl IntoIterator<Item = (Image, Result<Update, E>)>, E>,
+                    BuildContext<UpdateResult<E>, String, Result<Vec<(Image, UpdateResult<E>)>, E>>,
                 ),
             >,
         ) -> Self {
@@ -272,39 +274,72 @@ pub mod docker_compose {
             let mut breaking_updates = Vec::new();
             let mut failures = Vec::new();
 
-            for (service, service_path, result) in results {
-                match result {
-                    Ok(updates_result) => {
-                        let report = DockerfileReport::from(updates_result.into_iter()).report;
+            for (service, docker_compose_update) in results {
+                match docker_compose_update {
+                    BuildContext::Image(image, update_result) => match update_result {
+                        Err(error) => {
+                            failures.push((service.clone(), Ok(BuildContext::Image(image, error))))
+                        }
+                        Ok(update) => match update {
+                            Update {
+                                compatible: None,
+                                breaking: None,
+                            } => no_updates.push((service, BuildContext::Image(image, ()))),
+                            Update {
+                                compatible,
+                                breaking,
+                            } => {
+                                if let Some(compatible_update) = compatible {
+                                    compatible_updates.push((
+                                        service.clone(),
+                                        BuildContext::Image(image.clone(), compatible_update),
+                                    ));
+                                }
+                                if let Some(breaking_udpate) = breaking {
+                                    breaking_updates.push((
+                                        service.clone(),
+                                        BuildContext::Image(image.clone(), breaking_udpate),
+                                    ));
+                                }
+                            }
+                        },
+                    },
+                    BuildContext::Folder(path, result) => match result {
+                        Ok(update_results) => {
+                            let report = DockerfileReport::from(update_results.into_iter()).report;
 
-                        if !report.no_updates.is_empty() {
-                            no_updates.push((
-                                service.clone(),
-                                service_path.clone(),
-                                report.no_updates,
-                            ));
+                            if !report.no_updates.is_empty() {
+                                let adapted_no_update = report
+                                    .no_updates
+                                    .into_iter()
+                                    .map(|image| (image, ()))
+                                    .collect();
+                                no_updates.push((
+                                    service.clone(),
+                                    BuildContext::Folder(path.clone(), adapted_no_update),
+                                ));
+                            }
+                            if !report.compatible_updates.is_empty() {
+                                compatible_updates.push((
+                                    service.clone(),
+                                    BuildContext::Folder(path.clone(), report.compatible_updates),
+                                ));
+                            }
+                            if !report.breaking_updates.is_empty() {
+                                breaking_updates.push((
+                                    service.clone(),
+                                    BuildContext::Folder(path.clone(), report.breaking_updates),
+                                ));
+                            }
+                            if !report.failures.is_empty() {
+                                failures.push((
+                                    service.clone(),
+                                    Ok(BuildContext::Folder(path, report.failures)),
+                                ));
+                            }
                         }
-                        if !report.compatible_updates.is_empty() {
-                            compatible_updates.push((
-                                service.clone(),
-                                service_path.clone(),
-                                report.compatible_updates,
-                            ));
-                        }
-                        if !report.breaking_updates.is_empty() {
-                            breaking_updates.push((
-                                service.clone(),
-                                service_path.clone(),
-                                report.breaking_updates,
-                            ));
-                        }
-                        if !report.failures.is_empty() {
-                            failures.push((service.clone(), service_path, Ok(report.failures)));
-                        }
-                    }
-                    Err(error) => {
-                        failures.push((service, service_path, Err(error)));
-                    }
+                        Err(error) => failures.push((service, Err(error))),
+                    },
                 }
             }
 
@@ -323,36 +358,47 @@ pub mod docker_compose {
                 .report
                 .breaking_updates
                 .iter()
-                .map(|(service, service_path, updates)| {
-                    format!(
-                        "{}\n{}",
-                        display_service(service, service_path),
-                        display_updates("-!>", updates.iter()),
-                    )
+                .map(|(service, build_context)| match build_context {
+                    BuildContext::Image(image, update) => format!(
+                        "{service}\n{updates}",
+                        service = display_service_image(service, &image),
+                        updates = display_update(&image, "-!>", update),
+                    ),
+                    BuildContext::Folder(service_path, updates) => format!(
+                        "{service}\n{updates}",
+                        service = display_service_folder(service, service_path),
+                        updates = display_updates("-!>", updates.iter()),
+                    ),
                 })
                 .collect::<Vec<_>>();
             let compatible_updates = self
                 .report
                 .compatible_updates
                 .iter()
-                .map(|(service, service_path, updates)| {
-                    format!(
-                        "{}\n{}",
-                        display_service(service, service_path),
-                        display_updates("->", updates.iter()),
-                    )
+                .map(|(service, build_context)| match build_context {
+                    BuildContext::Image(image, update) => format!(
+                        "{service}\n{updates}",
+                        service = display_service_image(service, &image),
+                        updates = display_update(&image, "->", update),
+                    ),
+                    BuildContext::Folder(service_path, updates) => format!(
+                        "{service}\n{updates}",
+                        service = display_service_folder(service, service_path),
+                        updates = display_updates("->", updates.iter()),
+                    ),
                 })
                 .collect::<Vec<_>>();
             let no_updates = self
                 .report
                 .no_updates
                 .iter()
-                .map(|(service, service_path, images)| {
-                    format!(
-                        "{}\n{}",
-                        display_service(service, service_path),
-                        display_images(images.iter()),
-                    )
+                .map(|(service, build_context)| match build_context {
+                    BuildContext::Image(image, ()) => display_service_image(service, &image),
+                    BuildContext::Folder(service_path, images) => format!(
+                        "{service}\n{images}",
+                        service = display_service_folder(service, service_path),
+                        images = display_images(images.iter().map(|(image, ())| image)),
+                    ),
                 })
                 .collect::<Vec<_>>();
 
@@ -360,21 +406,21 @@ pub mod docker_compose {
 
             if !breaking_updates.is_empty() {
                 output.push(format!(
-                    "{} with breaking update:\n{}",
+                    "{} breaking update(s):\n{}",
                     breaking_updates.len(),
                     breaking_updates.join("\n\n")
                 ));
             }
             if !compatible_updates.is_empty() {
                 output.push(format!(
-                    "{} with compatible update:\n{}",
+                    "{} compatible update(s):\n{}",
                     compatible_updates.len(),
                     compatible_updates.join("\n\n")
                 ));
             }
             if !no_updates.is_empty() {
                 output.push(format!(
-                    "{} with no updates:\n{}",
+                    "{} without updates:\n{}",
                     no_updates.len(),
                     no_updates.join("\n\n")
                 ));
@@ -383,35 +429,60 @@ pub mod docker_compose {
             output.join("\n\n\n")
         }
 
-        pub fn display_failures(&self, custom_display_error: impl Fn(&E) -> String) -> String {
+        pub fn display_failures(&self) -> String {
             let failures = self
                 .report
                 .failures
                 .iter()
-                .map(|(service, service_path, error)| match error {
-                    Ok(check_errors) => {
-                        let errors = check_errors
+                .map(|(service, build_context)| match build_context {
+                    Err(error) => format!(
+                        "  {service}: {error}",
+                        service = service,
+                        error = display_error(error)
+                    ),
+                    Ok(BuildContext::Image(image, error)) => format!(
+                        "{service}\n{error}",
+                        service = display_service_image(service, &image),
+                        error = display_error(error)
+                    ),
+                    Ok(BuildContext::Folder(service_path, errors)) => {
+                        let errors = errors
                             .iter()
                             .map(|(image, check_error)| {
-                                format!("{}: {}", display_image(image), display_error(check_error))
+                                format!(
+                                    "{image}: {error}",
+                                    image = display_image(image),
+                                    error = display_error(check_error)
+                                )
                             })
                             .join("\n");
-                        format!("{}\n{}", display_service(service, service_path), errors)
+                        format!(
+                            "{service}\n{errors}",
+                            service = display_service_folder(service, service_path),
+                            errors = errors
+                        )
                     }
-                    Err(error) => format!("  {}:\n  - {}", service, custom_display_error(error)),
                 })
                 .collect::<Vec<_>>();
 
-            format!(
-                "{} with failure:\n{}",
-                failures.len(),
-                failures.join("\n\n")
-            )
+            format!("{} failure(s):\n{}", failures.len(), failures.join("\n\n"))
         }
     }
 
-    fn display_service(service: &str, service_path: &str) -> String {
-        format!("  {} (at `{}`):", service, service_path)
+    fn display_service_image(service: &str, image: &Image) -> String {
+        format!(
+            "  {service} with image `{image}`:",
+            service = service,
+            image = image
+        )
+    }
+
+    fn display_service_folder(service: &str, service_path: &str) -> String {
+        format!(
+            "  {service} with Dockerfile at `{dockerfile_path}`:",
+            service = service,
+            dockerfile_path = service_path
+        )
     }
 
     fn display_updates<'a>(
@@ -419,12 +490,14 @@ pub mod docker_compose {
         updates: impl Iterator<Item = &'a (Image, String)>,
     ) -> String {
         updates
-            .map(|(image, update)| {
-                let output = format_update(image, version_prefix, update);
-                let indented_output = output.replace("\n", "\n    ");
-                format!("  - {}", indented_output)
-            })
+            .map(|(image, update)| display_update(image, version_prefix, update))
             .join("\n")
+    }
+
+    fn display_update(image: &Image, version_prefix: &'static str, update: &str) -> String {
+        let output = format_update(image, version_prefix, update);
+        let indented_output = output.replace("\n", "\n    ");
+        format!("  - {}", indented_output)
     }
 
     fn display_images<'a>(images: impl Iterator<Item = &'a Image>) -> String {
@@ -442,12 +515,6 @@ pub mod docker_compose {
         use crate::dockerfile::CheckError;
         use crate::image::ImageName;
         use crate::Update;
-
-        type TestDockerComposeResults = Vec<(
-            ServiceName,
-            PathDisplay,
-            Result<Vec<(Image, Result<Update, CheckError>)>, CheckError>,
-        )>;
 
         #[test]
         fn generates_docker_compose_report() {
@@ -469,6 +536,7 @@ pub mod docker_compose {
                 tag: "1".to_string(),
             };
             let fail_error = CheckError::UnspecifiedPattern;
+            let fail_error_copy = CheckError::UnspecifiedPattern;
 
             let alpine_service = "alpine".to_string();
             let alpine_path = "path/to/alpine".to_string();
@@ -483,57 +551,101 @@ pub mod docker_compose {
                 breaking: Some(breaking_tag.clone()),
             };
 
-            let input: TestDockerComposeResults = vec![
+            let fail_service = "debian".to_string();
+            let fail_service_path = "path/to/debian".to_string();
+            let fail_service_error = CheckError::UnspecifiedPattern; // This is not a realistic error. It could be an IO error when reading the path to the Dockerfile. But I was too lazy to introduce a common error type to hold both `CheckError`s and IO errors.
+            let fail_service_error_copy = CheckError::UnspecifiedPattern;
+
+            let node_service = "node".to_string();
+            let node_image = Image {
+                name: ImageName::new(None, "node".to_string()),
+                tag: "14.4.0".to_string(),
+            };
+            let node_compatible_tag = "14.5.0".to_string();
+            let node_compatible_update = Update {
+                compatible: Some(node_compatible_tag.clone()),
+                breaking: None,
+            };
+
+            let image_fail_service = "python".to_string();
+            let image_fail_image = Image {
+                name: ImageName::new(None, "python".to_string()),
+                tag: "3.8.3".to_string(),
+            };
+            let image_fail_error = CheckError::UnspecifiedPattern;
+            let image_fail_error_copy = CheckError::UnspecifiedPattern;
+
+            let input = vec![
                 (
                     ubuntu_service.clone(),
-                    ubuntu_path.clone(),
-                    Ok(vec![
-                        (compatible_image.clone(), Ok(compatible_update)),
-                        (fail_image.clone(), Err(fail_error)),
-                    ]),
+                    BuildContext::Folder(
+                        ubuntu_path.clone(),
+                        Ok(vec![
+                            (compatible_image.clone(), Ok(compatible_update)),
+                            (fail_image.clone(), Err(fail_error)),
+                        ]),
+                    ),
                 ),
                 (
                     alpine_service.clone(),
-                    alpine_path.clone(),
-                    Ok(vec![(breaking_image.clone(), Ok(breaking_update))]),
+                    BuildContext::Folder(
+                        alpine_path.clone(),
+                        Ok(vec![(breaking_image.clone(), Ok(breaking_update))]),
+                    ),
+                ),
+                (
+                    fail_service.clone(),
+                    BuildContext::Folder(fail_service_path, Err(fail_service_error)),
+                ),
+                (
+                    node_service.clone(),
+                    BuildContext::Image(node_image.clone(), Ok(node_compatible_update)),
+                ),
+                (
+                    image_fail_service.clone(),
+                    BuildContext::Image(image_fail_image.clone(), Err(image_fail_error)),
                 ),
             ];
 
             let result = DockerComposeReport::from(input.into_iter());
             assert_eq!(
                 result.report.compatible_updates,
-                vec![(
-                    ubuntu_service.clone(),
-                    ubuntu_path.clone(),
-                    vec![(compatible_image, compatible_tag)]
-                )]
+                vec![
+                    (
+                        ubuntu_service.clone(),
+                        BuildContext::Folder(
+                            ubuntu_path.clone(),
+                            vec![(compatible_image, compatible_tag)]
+                        )
+                    ),
+                    (
+                        node_service,
+                        BuildContext::Image(node_image, node_compatible_tag)
+                    )
+                ]
             );
             assert_eq!(
-                result
-                    .report
-                    .failures
-                    .into_iter()
-                    .map(|(service, service_path, result)| {
-                        (
-                            service,
-                            service_path,
-                            result.map(|images| {
-                                images
-                                    .into_iter()
-                                    .map(|(image, _)| image)
-                                    .collect::<Vec<_>>()
-                            }),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-                vec![(ubuntu_service, ubuntu_path, Ok(vec![fail_image]))]
+                result.report.failures,
+                vec![
+                    (
+                        ubuntu_service,
+                        Ok(BuildContext::Folder(
+                            ubuntu_path,
+                            vec![(fail_image, fail_error_copy)]
+                        ),)
+                    ),
+                    (fail_service, Err(fail_service_error_copy)),
+                    (
+                        image_fail_service,
+                        Ok(BuildContext::Image(image_fail_image, image_fail_error_copy))
+                    )
+                ]
             );
             assert_eq!(
                 result.report.breaking_updates,
                 vec![(
                     alpine_service,
-                    alpine_path,
-                    vec![(breaking_image, breaking_tag)]
+                    BuildContext::Folder(alpine_path, vec![(breaking_image, breaking_tag)])
                 )]
             )
         }

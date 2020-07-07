@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{self, PathBuf};
 
 use anyhow::{Context, Result};
 use itertools::Itertools;
@@ -7,7 +7,8 @@ use lazy_static::lazy_static;
 use structopt::StructOpt;
 use thiserror::Error;
 
-use uptag::docker_compose::DockerCompose;
+use docker_compose::BuildContext;
+use uptag::docker_compose;
 use uptag::dockerfile;
 use uptag::dockerfile::CheckError;
 use uptag::image::ImageName;
@@ -203,62 +204,74 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         .file
         .canonicalize()
         .with_context(|| format!("Failed to find file `{}`", clean_path(&opts.file)))?;
-    let compose_file = fs::File::open(&compose_file_path).with_context(|| {
+    let compose_file = std::fs::read_to_string(&compose_file_path).with_context(|| {
         format!(
             "Failed to read file `{}`",
             display_canonicalized(&compose_file_path)
         )
     })?;
-    let compose: DockerCompose =
-        serde_yaml::from_reader(compose_file).context("Failed to parse Docker Compose file")?;
+    let services =
+        docker_compose::parse(&compose_file).context("Failed to parse docker-compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
     let uptag = Uptag::default();
-    let services = compose.services.into_iter().map(|(service_name, service)| {
-        let path = compose_dir.join(service.build).join("Dockerfile");
-        let path_display = path
-            .canonicalize()
-            .map(|path| display_canonicalized(&path))
-            .unwrap_or_else(|_| clean_path(&path));
+    let updates = services
+        .into_iter()
+        .map(|(service_name, build_context)| match build_context {
+            docker_compose::BuildContext::Image(image, pattern) => {
+                let extractor = VersionExtractor::new(pattern);
+                let update = uptag
+                    .find_update(&image, &extractor)
+                    .map_err(UpdateError::FindUpdate);
+                (service_name, BuildContext::Image(image, update))
+            }
+            docker_compose::BuildContext::Folder(relative_path, ()) => {
+                let path = compose_dir.join(relative_path).join("Dockerfile");
+                let path_display = path
+                    .canonicalize()
+                    .map(|path| display_canonicalized(&path))
+                    .unwrap_or_else(|_| clean_path(&path));
 
-        let updates_result = fs::read_to_string(&path)
-            .map_err(|error| UpdateError::IO {
-                file: clean_path(&path),
-                source: error,
-            })
-            .map(|input| {
-                let images = dockerfile::parse(&input);
-                let updates = images.map(|(image, pattern_result)| {
-                    let results = pattern_result
-                        .map_err(UpdateError::Check)
-                        .and_then(|pattern| {
-                            let extractor = VersionExtractor::new(pattern);
+                let updates_result = fs::read_to_string(&path)
+                    .map_err(|error| UpdateError::IO {
+                        file: clean_path(&path),
+                        source: error,
+                    })
+                    .map(|input| {
+                        let images = dockerfile::parse(&input);
+                        let updates = images.map(|(image, pattern_result)| {
+                            let results =
+                                pattern_result
+                                    .map_err(UpdateError::Check)
+                                    .and_then(|pattern| {
+                                        let extractor = VersionExtractor::new(pattern);
 
-                            uptag
-                                .find_update(&image, &extractor)
-                                .map_err(UpdateError::FindUpdate)
+                                        uptag
+                                            .find_update(&image, &extractor)
+                                            .map_err(UpdateError::FindUpdate)
+                                    });
+                            (image, results)
                         });
-                    (image, results)
-                });
-                updates.collect::<Vec<_>>()
-            });
+                        updates.collect::<Vec<_>>()
+                    });
 
-        (service_name, path_display, updates_result)
-    });
+                (
+                    service_name,
+                    BuildContext::Folder(path_display, updates_result),
+                )
+            }
+        });
 
-    let docker_compose_report = DockerComposeReport::from(services);
+    let docker_compose_report = DockerComposeReport::from(updates);
 
     let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
     println!(
-        "Report for Docker Compose file at `{}`:\n",
+        "Report for docker-compose file at `{}`:\n",
         display_canonicalized(&compose_file_path)
     );
     if !docker_compose_report.report.failures.is_empty() {
-        eprintln!(
-            "{}",
-            docker_compose_report.display_failures(|error| format!("{:#}", error))
-        );
+        eprintln!("{}", docker_compose_report.display_failures());
         println!("\n");
     }
     println!("{}", docker_compose_report.display_successes());
@@ -286,7 +299,7 @@ lazy_static! {
     static ref SEPARATOR: String = std::path::MAIN_SEPARATOR.to_string();
     static ref CWD: PathBuf = std::env::current_dir().unwrap_or_default();
 }
-use std::path;
+
 fn clean_path(path: &path::Path) -> String {
     let absolute_path = CWD.join(path);
     let mut components = absolute_path.components();

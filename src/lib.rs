@@ -85,10 +85,7 @@ where
             }
         }
 
-        Err(FindUpdateError::CurrentTagNotEncountered {
-            current_tag: current_tag.clone(),
-            searched_amount,
-        })
+        Err(FindUpdateError::CurrentTagNotEncountered { searched_amount })
     }
 }
 
@@ -107,12 +104,8 @@ where
 {
     #[error("Failed to fetch tags")]
     FetchError(#[from] E),
-    // TODO: Attach possible breaking update.
-    #[error("Failed to find current tag `{current_tag}` in the latest {searched_amount} tags (there might be compatible updates after that)")]
-    CurrentTagNotEncountered {
-        current_tag: Tag,
-        searched_amount: usize,
-    },
+    #[error("Failed to find compatible update in the latest {searched_amount} tags (you may want to increase uptag's search limit)")]
+    CurrentTagNotEncountered { searched_amount: usize },
     #[error("The current tag `{current_tag}` does not match the pattern `{pattern}`")]
     CurrentTagPatternConflict { current_tag: Tag, pattern: String },
 }
@@ -288,10 +281,7 @@ mod test {
         let result = uptag.find_update(&image, &extractor);
         assert_eq!(
             result,
-            Err(FindUpdateError::CurrentTagNotEncountered {
-                current_tag: image.tag,
-                searched_amount: 3
-            })
+            Err(FindUpdateError::CurrentTagNotEncountered { searched_amount: 3 })
         );
     }
 

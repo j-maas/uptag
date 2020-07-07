@@ -42,7 +42,7 @@ pub enum ImageName {
 // We will not check whether these restrictions are violated, because that would
 // make it unnecessarily complex. We will, however, allow only the specified
 // character set.
-pub fn name_pattern() -> String {
+fn name_pattern() -> String {
     let name_characters = r"[a-z0-9._-]+";
     format!(
         r"((?P<first>{name_chars})/)?(?P<second>{name_chars})",
