@@ -50,12 +50,18 @@ struct FetchOpts {
 struct CheckOpts {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
+    /// Limits how many tags will be searched through looking for a match.
+    #[structopt(short, long, default_value = "100")]
+    search_limit: usize,
 }
 
 #[derive(Debug, StructOpt)]
 struct CheckComposeOpts {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
+    /// Limits how many tags will be searched through looking for a match.
+    #[structopt(short, long, default_value = "100")]
+    search_limit: usize,
 }
 
 fn main() {
@@ -159,7 +165,8 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
         )
     })?;
 
-    let uptag = Uptag::default();
+    let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
+    let uptag = Uptag::new(fetcher);
     let images = dockerfile::parse(&input);
     let updates = images.map(|(image, pattern_result)| {
         let results = pattern_result
@@ -222,7 +229,8 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         docker_compose::parse(&compose_file).context("Failed to parse docker-compose file")?;
 
     let compose_dir = opts.file.parent().unwrap();
-    let uptag = Uptag::default();
+    let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
+    let uptag = Uptag::new(fetcher);
     let updates = services
         .into_iter()
         .map(|(service_name, build_context)| match build_context {
