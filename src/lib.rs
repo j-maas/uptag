@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use image::Image;
-use tag_fetcher::{DockerHubTagFetcher, TagFetcher};
+use tag_fetcher::TagFetcher;
 use version::extractor::VersionExtractor;
 use version::UpdateType;
 
@@ -19,12 +19,6 @@ where
     T: TagFetcher,
 {
     fetcher: T,
-}
-
-impl Default for Uptag<DockerHubTagFetcher> {
-    fn default() -> Self {
-        Uptag::new(DockerHubTagFetcher::new())
-    }
 }
 
 impl<T> Uptag<T>
