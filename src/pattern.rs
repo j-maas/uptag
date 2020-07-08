@@ -42,6 +42,7 @@ impl Error {
 
 impl std::fmt::Display for Pattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut version_part_counter = 0;
         write!(
             f,
             "{}",
@@ -50,7 +51,14 @@ impl std::fmt::Display for Pattern {
                 .map(|part| {
                     use PatternPart::*;
                     match part {
-                        VersionPart => "<>".to_string(),
+                        VersionPart => {
+                            version_part_counter += 1;
+                            if version_part_counter <= self.breaking_degree() {
+                                "<!>".to_string()
+                            } else {
+                                "<>".to_string()
+                            }
+                        }
                         Literal(literal) => literal.clone(),
                     }
                 })
