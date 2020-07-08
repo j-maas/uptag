@@ -97,7 +97,8 @@ impl ExitCode {
 }
 
 fn fetch(opts: FetchOpts) -> Result<ExitCode> {
-    let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
+    let adjusted_search_limit = std::cmp::max(opts.search_limit, opts.amount);
+    let fetcher = DockerHubTagFetcher::with_search_limit(adjusted_search_limit);
     let tags = fetcher.fetch(&opts.image);
 
     let result = if let Some(extractor) = opts.pattern {
