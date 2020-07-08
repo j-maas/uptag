@@ -26,15 +26,22 @@ enum Opts {
     CheckCompose(CheckComposeOpts),
 }
 
+/// Outputs the latest tags for an image.
 #[derive(Debug, StructOpt)]
 struct FetchOpts {
+    /// The image name for which tags should be fetched.
     image: ImageName,
+    /// A pattern to filter the tags with. Only matching tags will be output.
     #[structopt(short, long)]
     pattern: Option<VersionExtractor>,
-    /// If a pattern is given, the maximum number of matching tags to output before stopping.
+    /// The maximum number of tags to output.
     #[structopt(short, long, default_value = "25")]
     amount: usize,
-    /// The maximum number of tags to search through before stopping.
+    /// If given a pattern, limits how many tags will be searched through looking for a match.
+    ///
+    /// If --amount is larger, it will be set to --amount.
+    ///
+    /// Example: `uptag fetch --amount 50 --search-limit 500 --pattern '<!>.<>' ubuntu` will search the latest 500 tags and output up to 50 matching tags.
     #[structopt(short, long, default_value = "100")]
     search_limit: usize,
 }
