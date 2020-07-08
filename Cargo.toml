@@ -23,3 +23,6 @@ marked-yaml = "0.1.0"
 
 [dev-dependencies]
 proptest = "0.10.0"
+
+[profile.release]
+lto = true
