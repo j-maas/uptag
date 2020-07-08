@@ -21,7 +21,6 @@ pub trait TagFetcher {
     /// If the `TagFetcher` encounters an error, it will emit an error variant
     /// as the next iterator item.
     ///
-    /// [`fetch_until`]: #method.fetch_until
     fn fetch(&self, image: &ImageName) -> Self::TagIter;
 }
 
