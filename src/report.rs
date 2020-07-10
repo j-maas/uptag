@@ -471,7 +471,7 @@ pub mod docker_compose {
 
     fn display_service_image(service: &str, image: &Image) -> String {
         format!(
-            "  {service} with image `{image}`:",
+            "  service `{service}` with image `{image}`:",
             service = service,
             image = image
         )
@@ -479,7 +479,7 @@ pub mod docker_compose {
 
     fn display_service_folder(service: &str, service_path: &str) -> String {
         format!(
-            "  {service} with Dockerfile at `{dockerfile_path}`:",
+            "  service `{service}` with Dockerfile at `{dockerfile_path}`:",
             service = service,
             dockerfile_path = service_path
         )
