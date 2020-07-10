@@ -79,7 +79,10 @@ where
             }
         }
 
-        Err(FindUpdateError::CurrentTagNotEncountered { searched_amount })
+        Err(FindUpdateError::CurrentTagNotEncountered {
+            searched_amount,
+            breaking_update,
+        })
     }
 }
 
@@ -99,7 +102,10 @@ where
     #[error("Failed to fetch tags")]
     FetchError(#[from] E),
     #[error("Failed to find compatible update in the latest {searched_amount} tags (you may want to increase uptag's search limit)")]
-    CurrentTagNotEncountered { searched_amount: usize },
+    CurrentTagNotEncountered {
+        searched_amount: usize,
+        breaking_update: Option<Tag>,
+    },
     #[error("The current tag `{current_tag}` does not match the pattern `{pattern}`")]
     CurrentTagPatternConflict { current_tag: Tag, pattern: String },
 }
@@ -265,6 +271,7 @@ mod test {
         let fetcher = ArrayFetcher::with(
             image.name.clone(),
             vec![
+                "15.01".to_string(),
                 "14.03".to_string(),
                 "14.02".to_string(),
                 "13.03".to_string(),
@@ -275,7 +282,10 @@ mod test {
         let result = uptag.find_update(&image, &extractor);
         assert_eq!(
             result,
-            Err(FindUpdateError::CurrentTagNotEncountered { searched_amount: 3 })
+            Err(FindUpdateError::CurrentTagNotEncountered {
+                searched_amount: 4,
+                breaking_update: Some("15.01".to_string())
+            })
         );
     }
 
