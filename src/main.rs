@@ -17,7 +17,7 @@ use uptag::report::{
 };
 use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use uptag::version::extractor::VersionExtractor;
-use uptag::{FindUpdateError, Uptag};
+use uptag::FindUpdateError;
 
 #[derive(Debug, StructOpt)]
 enum Opts {
@@ -166,7 +166,6 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
     })?;
 
     let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
-    let uptag = Uptag::new(fetcher);
     let images = dockerfile::parse(&input);
     let updates = images.map(|(image, pattern_result)| {
         let results = pattern_result
@@ -174,9 +173,7 @@ fn check(opts: CheckOpts) -> Result<ExitCode> {
             .and_then(|pattern| {
                 let extractor = VersionExtractor::new(pattern);
 
-                uptag
-                    .find_update(&image, &extractor)
-                    .map_err(UpdateError::FindUpdate)
+                uptag::find_update(&fetcher, &image, &extractor).map_err(UpdateError::FindUpdate)
             });
         (image, results)
     });
@@ -230,14 +227,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     let compose_dir = opts.file.parent().unwrap();
     let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
-    let uptag = Uptag::new(fetcher);
     let updates = services
         .into_iter()
         .map(|(service_name, build_context)| match build_context {
             docker_compose::BuildContext::Image(image, pattern) => {
                 let extractor = VersionExtractor::new(pattern);
-                let update = uptag
-                    .find_update(&image, &extractor)
+                let update = uptag::find_update(&fetcher, &image, &extractor)
                     .map_err(UpdateError::FindUpdate);
                 (service_name, BuildContext::Image(image, update))
             }
@@ -262,8 +257,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                                     .and_then(|pattern| {
                                         let extractor = VersionExtractor::new(pattern);
 
-                                        uptag
-                                            .find_update(&image, &extractor)
+                                        uptag::find_update(&fetcher, &image, &extractor)
                                             .map_err(UpdateError::FindUpdate)
                                     });
                             (image, results)

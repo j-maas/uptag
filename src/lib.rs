@@ -14,76 +14,63 @@ use tag_fetcher::TagFetcher;
 use version::extractor::VersionExtractor;
 use version::UpdateType;
 
-pub struct Uptag<T>
+pub fn find_update<T>(
+    fetcher: &T,
+    image: &Image,
+    extractor: &VersionExtractor,
+) -> Result<Update, FindUpdateError<T::FetchError>>
 where
     T: TagFetcher,
 {
-    fetcher: T,
-}
-
-impl<T> Uptag<T>
-where
-    T: TagFetcher,
-    T::FetchError: 'static,
-{
-    pub fn new(fetcher: T) -> Uptag<T> {
-        Uptag { fetcher }
-    }
-
-    pub fn find_update(
-        &self,
-        image: &Image,
-        extractor: &VersionExtractor,
-    ) -> Result<Update, FindUpdateError<T::FetchError>> {
-        let current_tag = &image.tag;
-        let current_version = extractor.extract_from(&image.tag).ok_or(
-            FindUpdateError::CurrentTagPatternConflict {
+    let current_tag = &image.tag;
+    let current_version =
+        extractor
+            .extract_from(&image.tag)
+            .ok_or(FindUpdateError::CurrentTagPatternConflict {
                 current_tag: image.tag.to_string(),
                 pattern: extractor.pattern().to_string(),
-            },
-        )?;
+            })?;
 
-        let mut breaking_update = None;
+    let mut breaking_update = None;
 
-        let mut searched_amount = 0;
-        for tag_result in self.fetcher.fetch(&image.name) {
-            searched_amount += 1;
+    let mut searched_amount = 0;
+    for tag_result in fetcher.fetch(&image.name) {
+        searched_amount += 1;
 
-            let tag_candidate = tag_result?;
+        let tag_candidate = tag_result?;
 
-            if &tag_candidate == current_tag {
-                return Ok(Update {
-                    compatible: None,
-                    breaking: breaking_update,
-                });
+        if &tag_candidate == current_tag {
+            return Ok(Update {
+                compatible: None,
+                breaking: breaking_update,
+            });
+        }
+
+        if let Some(version_candidate) = extractor.extract_from(&tag_candidate) {
+            if version_candidate < current_version {
+                continue;
             }
 
-            if let Some(version_candidate) = extractor.extract_from(&tag_candidate) {
-                if version_candidate < current_version {
-                    continue;
+            match version_candidate
+                .update_type(&current_version, extractor.pattern().breaking_degree())
+            {
+                UpdateType::Breaking => {
+                    breaking_update = breaking_update.or(Some(tag_candidate));
                 }
-
-                match version_candidate
-                    .update_type(&current_version, extractor.pattern().breaking_degree())
-                {
-                    UpdateType::Breaking => {
-                        breaking_update = breaking_update.or(Some(tag_candidate));
-                    }
-                    UpdateType::Compatible => {
-                        return Ok(Update {
-                            compatible: Some(tag_candidate),
-                            breaking: breaking_update,
-                        })
-                    }
+                UpdateType::Compatible => {
+                    return Ok(Update {
+                        compatible: Some(tag_candidate),
+                        breaking: breaking_update,
+                    })
                 }
             }
         }
-
-        Err(FindUpdateError::CurrentTagNotEncountered {
-            searched_amount,
-            breaking_update,
-        })
     }
+
+    Err(FindUpdateError::CurrentTagNotEncountered {
+        searched_amount,
+        breaking_update,
+    })
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -157,9 +144,8 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -187,9 +173,8 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -218,9 +203,8 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -247,9 +231,8 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         let actual = result.unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(
             actual,
@@ -277,9 +260,8 @@ mod test {
                 "13.03".to_string(),
             ],
         );
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::CurrentTagNotEncountered {
@@ -299,9 +281,8 @@ mod test {
 
         // With an empty ArrayFetcher, all queries will return an error, since the image cannot be found.
         let fetcher = ArrayFetcher::new();
-        let uptag = Uptag::new(fetcher);
 
-        let result = uptag.find_update(&image, &extractor);
+        let result = find_update(&fetcher, &image, &extractor);
         assert_eq!(
             result,
             Err(FindUpdateError::FetchError(
