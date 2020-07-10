@@ -85,6 +85,7 @@ pub mod matches {
             &self.pattern
         }
 
+        // TODO: Use image's parsing.
         pub fn image(&self) -> Image {
             Image {
                 name: ImageName::new(

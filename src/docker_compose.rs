@@ -5,7 +5,7 @@ use regex::Regex;
 use thiserror::Error;
 
 use crate::{
-    image::{Image, ImageName},
+    image::Image,
     pattern::{self, Pattern},
 };
 
@@ -38,21 +38,9 @@ pub fn parse(input: &str) -> Result<Vec<ServiceResult>, Error> {
                 BuildContext::Folder(raw_path.into(), ())
             } else if let Some(image_node) = service.get_scalar("image") {
                 let raw_image = image_node.as_str();
-                let captures = IMAGE
-                    .captures(raw_image)
-                    .ok_or_else(|| InvalidImage(raw_image.to_string()))?;
-                let image_name = ImageName::new(
-                    captures.name("user").map(|c| c.as_str().to_string()),
-                    captures.name("image").unwrap().as_str().to_string(),
-                );
-                let tag = captures
-                    .name("tag")
-                    .map(|tag| tag.as_str())
-                    .unwrap_or("latest");
-                let image = Image {
-                    name: image_name,
-                    tag: tag.to_string(),
-                };
+                let image = raw_image
+                    .parse()
+                    .map_err(|_| InvalidImage(raw_image.to_string()))?;
                 let image_line_number = image_node.span().start().unwrap().line();
                 let (_, preceding_line) = input
                     .lines()
@@ -106,10 +94,6 @@ pub enum Error {
 }
 
 lazy_static! {
-    static ref IMAGE: Regex = Regex::new(
-        r#"((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
-    )
-    .unwrap();
     static ref PATTERN: Regex =
         Regex::new(r#"#\s*uptag\s+--pattern\s+"(?P<pattern>[^"]*)""#).unwrap();
 }
@@ -135,10 +119,7 @@ services:
                 (
                     "ubuntu".to_string(),
                     BuildContext::Image(
-                        Image {
-                            name: ImageName::new(None, "ubuntu".to_string()),
-                            tag: "18.04".to_string()
-                        },
+                        "ubuntu:18.04".parse().unwrap(),
                         Pattern::parse("<!>.<>").unwrap()
                     )
                 ),
@@ -173,6 +154,7 @@ services:
         let input = r#"
 services:
     ubuntu:
+        # uptag --pattern ""
         image: "invalid/image/definition"
         "#;
         assert_eq!(
