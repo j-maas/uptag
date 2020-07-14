@@ -31,9 +31,7 @@ Use `<>` to match a number. Everything else will be matched literally.
 Specify which numbers indicate breaking changes using `<!>`. Uptag will report breaking changes separately from compatible changes.
 - Given pattern `<!>.<>.<>` and the current tag `1.4.12`:
   - compatible updates: `1.6.12` and `1.4.13`
-  - breaking updates: `2.4.12` and `3.5.13`
-
-")]
+  - breaking updates: `2.4.12` and `3.5.13`")]
 enum Opts {
     Fetch(FetchOpts),
     Check(CheckOpts),
@@ -62,6 +60,18 @@ struct FetchOpts {
 
 /// Reports on update status for all images in a Dockerfile.
 #[derive(Debug, StructOpt)]
+#[structopt(after_help = r#"SPECIFYING PATTERNS:
+Each `FROM` definition needs to be annotated with a pattern and declare a specific tag that matches that pattern. The pattern must be given as a comment in the line before each `FROM <image>:<tag>` definition in the following format:
+# uptag --pattern "<pattern>"
+
+Example Dockerfile:
+```
+# uptag --pattern "<!>.<>"
+FROM ubuntu:18.04
+
+# uptag --pattern "<!>.<>.<>-slim"
+FROM node:14.5.0-slim
+```"#)]
 struct CheckOpts {
     /// The Dockerfile to check.
     #[structopt(parse(from_os_str))]
@@ -73,6 +83,26 @@ struct CheckOpts {
 
 /// Reports on update status for all services in a docker-compose file.
 #[derive(Debug, StructOpt)]
+#[structopt(after_help = r#"SPECIFYING PATTERNS:
+Each service must associate a pattern with its images. There are two supported declarations.
+
+A service can specify an `image` field, pointing to an image on DockerHub. Such an image needs to be annotated with a pattern and declare a specific tag that matches that pattern. The pattern must be given as a comment in the line before the `image` field in the following format:
+# uptag --pattern "<pattern>"
+
+Alternatively, a service can point to a folder containing a Dockerfile via its `build` field. That Dockerfile needs to specify patterns as documented in `uptag check --help`.
+
+Example docker-compose.yml:
+```
+version: "3.6"
+
+services:
+  ubuntu: 
+    # uptag --pattern "<!>.<>"
+    image: ubuntu:18.04
+
+  alpine:
+    build: ./alpine
+```"#)]
 struct CheckComposeOpts {
     /// The docker-compose file to check.
     #[structopt(parse(from_os_str))]
