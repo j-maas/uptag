@@ -64,7 +64,7 @@ struct FetchOpts {
 Each `FROM` definition needs to be annotated with a pattern and declare a specific tag that matches that pattern. The pattern must be given as a comment in the line before each `FROM <image>:<tag>` definition in the following format:
 # uptag --pattern "<pattern>"
 
-Example Dockerfile:
+Example `Dockerfile`:
 ```
 # uptag --pattern "<!>.<>"
 FROM ubuntu:18.04
@@ -91,7 +91,7 @@ A service can specify an `image` field, pointing to an image on DockerHub. Such 
 
 Alternatively, a service can point to a folder containing a Dockerfile via its `build` field. That Dockerfile needs to specify patterns as documented in `uptag check --help`.
 
-Example docker-compose.yml:
+Example `docker-compose.yml`:
 ```
 version: "3.6"
 
