@@ -27,8 +27,8 @@ Use `<>` to match a number. Everything else will be matched literally.
 - `<>.<>.<>` will match `2.13.3` but not `2.13.3a`.
 - `debian-<>-beta` will match `debian-10-beta` but not `debian-10`.
 
-Specify which numbers indicate breaking changes using `<!>`. Uptag will report breaking changes separately from compatible changes.  
-- `<!>.<>.<>` and the current tag is `1.4.12`
+Specify which numbers indicate breaking changes using `<!>`. Uptag will report breaking changes separately from compatible changes.
+- Given pattern `<!>.<>.<>` and the current tag `1.4.12`
   - compatible updates: `1.6.12` and `1.4.13`
   - breaking updates: `2.4.12` and `3.5.13`
 

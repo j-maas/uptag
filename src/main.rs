@@ -20,14 +20,27 @@ use uptag::tag_fetcher::{DockerHubTagFetcher, TagFetcher};
 use uptag::version::extractor::VersionExtractor;
 use uptag::FindUpdateError;
 
+/// Check Docker image tags for updates.
 #[derive(Debug, StructOpt)]
+#[structopt(after_help = "\
+PATTERN SYNTAX:
+Use `<>` to match a number. Everything else will be matched literally.
+- `<>.<>.<>` will match `2.13.3` but not `2.13.3a`.
+- `debian-<>-beta` will match `debian-10-beta` but not `debian-10`.
+
+Specify which numbers indicate breaking changes using `<!>`. Uptag will report breaking changes separately from compatible changes.
+- Given pattern `<!>.<>.<>` and the current tag `1.4.12`:
+  - compatible updates: `1.6.12` and `1.4.13`
+  - breaking updates: `2.4.12` and `3.5.13`
+
+")]
 enum Opts {
     Fetch(FetchOpts),
     Check(CheckOpts),
     CheckCompose(CheckComposeOpts),
 }
 
-/// Outputs the latest tags for an image.
+/// Lists the latest tags for an image from DockerHub.
 #[derive(Debug, StructOpt)]
 struct FetchOpts {
     /// The image name for which tags should be fetched.
@@ -40,27 +53,31 @@ struct FetchOpts {
     amount: usize,
     /// If given a pattern, limits how many tags will be searched through looking for a match.
     ///
-    /// If --amount is larger, it will be set to --amount.
+    /// If --amount is larger, this will be set to --amount.
     ///
-    /// Example: `uptag fetch --amount 50 --search-limit 500 --pattern '<!>.<>' ubuntu` will search the latest 500 tags and output up to 50 matching tags.
+    /// Example: `uptag fetch --amount 50 --search-limit 500 --pattern '<!>.<>' ubuntu` will stop after 50 matching tags or after looking through the latest 500 tags, whichever happens first.
     #[structopt(short, long, default_value = "100")]
     search_limit: usize,
 }
 
+/// Reports on update status for all images in a Dockerfile.
 #[derive(Debug, StructOpt)]
 struct CheckOpts {
+    /// The Dockerfile to check.
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    /// Limits how many tags will be searched through looking for a match.
+    /// Limits how many tags will be fetched from DockerHub before stopping the search.
     #[structopt(short, long, default_value = "100")]
     search_limit: usize,
 }
 
+/// Reports on update status for all services in a docker-compose file.
 #[derive(Debug, StructOpt)]
 struct CheckComposeOpts {
+    /// The docker-compose file to check.
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    /// Limits how many tags will be searched through looking for a match.
+    /// Limits how many tags will be fetched from DockerHub before stopping the search.
     #[structopt(short, long, default_value = "100")]
     search_limit: usize,
 }
