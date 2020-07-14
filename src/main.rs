@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{self, PathBuf};
 
 use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use structopt::StructOpt;
@@ -227,9 +228,18 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
 
     let compose_dir = opts.file.parent().unwrap();
     let fetcher = DockerHubTagFetcher::with_search_limit(opts.search_limit);
-    let updates = services
-        .into_iter()
-        .map(|(service_name, build_context)| match build_context {
+
+    let progress_bar = ProgressBar::new(services.len() as u64)
+        .with_style(ProgressStyle::default_bar().template("{msg}\n{wide_bar} {pos}/{len}"));
+
+    let updates = services.into_iter().map(|(service_name, build_context)| {
+        progress_bar.set_message(&format!(
+            "Fetching for service `{service}`",
+            service = service_name
+        ));
+        progress_bar.inc(1);
+
+        match build_context {
             docker_compose::BuildContext::Image(image, pattern) => {
                 let extractor = VersionExtractor::new(pattern);
                 let update = uptag::find_update(&fetcher, &image, &extractor)
@@ -270,9 +280,12 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
                     BuildContext::Folder(path_display, updates_result),
                 )
             }
-        });
+        }
+    });
 
     let docker_compose_report = DockerComposeReport::from(updates);
+
+    progress_bar.finish_and_clear();
 
     let exit_code = ExitCode::from(docker_compose_report.report.update_level());
 
