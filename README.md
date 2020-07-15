@@ -24,6 +24,11 @@ FROM ubuntu:18.03
 
 Documentation is available with `uptag help`. Note that for example `uptag fetch -h` will give a summary, while `uptag fetch --help` prints the full documentation.
 
+## Installation
+Download the binaries from the [releases page](https://github.com/Y0hy0h/uptag/releases), available for Linux and Windows. Put them in a convenient location that is included in your [`PATH`](https://superuser.com/a/284351), so that `uptag` is available from everywhere.
+
+Alternatively, you can build the binary for your system yourself. Install [`rustup`](https://rustup.rs/), clone this repository, and run `cargo build --release` in this folder. The binary will be available at `./target/release/uptag`.
+
 ## Pattern syntax
 Use `<>` to match a number. Everything else will be matched literally.
 - `<>.<>.<>` will match `2.13.3` but not `2.13.3a`.
