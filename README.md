@@ -1,5 +1,5 @@
 # uptag: Update tags in Dockerfiles.
-[![CI status](https://github.com/Y0hy0h/uptag/workflows/CI/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
+[![CI status](https://github.com/Y0hy0h/uptag/workflows/CI/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license) [![Passively maintained](https://img.shields.io/badge/mainentance-passive-yellow)](#maintenance)
 
 Tired of manually looking up whether the base images you depend on have been updated?
 
@@ -73,6 +73,9 @@ services:
   alpine:
     build: ./alpine
 ```
+
+## Maintenance
+This project is passively maintened. I intend to respond to issues and pull requests, but am not dedicating time to develop new features.
 
 ## License
 Licensed under either of
