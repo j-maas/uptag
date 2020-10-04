@@ -24,6 +24,8 @@ FROM ubuntu:18.03
 
 Documentation is available with `uptag help`. Note that for example `uptag fetch -h` will give a summary, while `uptag fetch --help` prints the full documentation.
 
+For an example of how to receive daily update emails, see `./examples`.
+
 ## Installation
 Download the binaries from the [releases page](https://github.com/Y0hy0h/uptag/releases), available for Linux and Windows. Put them in a convenient location that is included in your [`PATH`](https://superuser.com/a/284351), so that `uptag` is available from everywhere.
 
