@@ -1,4 +1,4 @@
-# Uptag examples
+# uptag examples
 
 ## Email report
 With a cronjob and `mail` configured, you can send daily emails when there are updates available.
