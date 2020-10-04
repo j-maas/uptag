@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Runs uptag (https://github.com/Y0hy0h/uptag) to check tags for updates in
+# the docker services specified in docker-compose.yml
+
+REPORT=$(uptag check-compose <path to docker-compose.yml> 2>&1)
+
+if [ $? -ne 0 ]
+then
+    echo "$REPORT" | mail -s "Updates for Docker Services" <email address>
+fi
