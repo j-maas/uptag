@@ -5,9 +5,7 @@ use crate::pattern;
 use crate::pattern::Pattern;
 use matches::Matches;
 
-pub fn parse<'a>(
-    input: &'a str,
-) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + 'a {
+pub fn parse(input: &str) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + '_ {
     Matches::iter(input).map(|matches| {
         let image = matches.image();
         let pattern = matches
@@ -58,7 +56,7 @@ pub mod matches {
 
     lazy_static! {
         static ref STATEMENT: Regex = Regex::new(
-            r#"(#\s*uptag\s+--pattern\s+"(?P<pattern>[^"]*)"\s*\n[\s\n]*)?\s*FROM\s*((?P<user>[[:word:]-]+)/)?(?P<image>[[:word:]-]+):(?P<tag>[[:word:][:punct:]]+)"#
+            r#"(#\s*uptag\s+--pattern\s+"(?P<pattern>[^"]*)"\s*\n[\s\n]*)?\s*FROM\s*((?P<user>[[:word:]-.]+)/)?(?P<image>[[:word:]-.]+):(?P<tag>[[:word:][:punct:]]+)"#
         ).unwrap();
     }
 
@@ -178,6 +176,22 @@ pub mod matches {
                         image: "ubuntu".into()
                     },
                     image_tag: "14.04",
+                    extractor: None,
+                })
+            )
+        }
+
+        #[test]
+        fn matches_image_with_special_characters() {
+            let dockerfile = "FROM weird.user/weird.image:3.10.5";
+            assert_eq_option!(
+                Matches::first(dockerfile),
+                Some(ExpectedMatches {
+                    image_name: ImageName::User {
+                        user: "weird.user".into(),
+                        image: "weird.image".into()
+                    },
+                    image_tag: "3.10.5",
                     extractor: None,
                 })
             )
