@@ -22,10 +22,6 @@ nom = "6.1.2"
 marked-yaml = "0.1.0"
 indicatif = "0.15.0"
 
-[target.'cfg(windows)'.dependencies]
-# indicatif v0.15.0 uses a version of winapi-util that fails to compile, so we specify a newer version
-winapi-util = "0.1.5"
-
 [dev-dependencies]
 proptest = "1.0.0"
 
