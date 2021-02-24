@@ -98,10 +98,7 @@ mod parser {
 
         let breaking_degree = breaking
             .iter()
-            .filter(|part| match part {
-                PatternPart::VersionPart => true,
-                _ => false,
-            })
+            .filter(|part| matches!(part, PatternPart::VersionPart))
             .count();
         let mut parts = match maybe_first {
             Some(first) => vec![first],
