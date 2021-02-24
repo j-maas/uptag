@@ -5,9 +5,7 @@ use crate::pattern;
 use crate::pattern::Pattern;
 use matches::Matches;
 
-pub fn parse<'a>(
-    input: &'a str,
-) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + 'a {
+pub fn parse(input: &str) -> impl Iterator<Item = (Image, Result<Pattern, CheckError>)> + '_ {
     Matches::iter(input).map(|matches| {
         let image = matches.image();
         let pattern = matches
