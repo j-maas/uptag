@@ -189,7 +189,7 @@ pub mod matches {
             assert_eq_option!(
                 Matches::first(dockerfile),
                 Some(ExpectedMatches {
-                    image_name: ImageName::User{
+                    image_name: ImageName::User {
                         user: "weird.user".into(),
                         image: "weird.image".into()
                     },
