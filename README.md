@@ -1,11 +1,11 @@
 # uptag: Update tags in Dockerfiles.
-[![CI status](https://github.com/Y0hy0h/uptag/workflows/CI/badge.svg)](https://github.com/Y0hy0h/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license) [![Passively maintained](https://img.shields.io/badge/mainentance-passive-yellow)](#maintenance)
+[![CI status](https://github.com/j-maas/uptag/workflows/CI/badge.svg)](https://github.com/j-maas/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license) [![Passively maintained](https://img.shields.io/badge/mainentance-passive-yellow)](#maintenance)
 
 Tired of manually looking up whether the base images you depend on have been updated?
 
 ```
 $ uptag check ./Dockerfile
-Report for Dockerfile at `/home/y0hy0h/Dockerfile`:
+Report for Dockerfile at `/home/j-maas/Dockerfile`:
 
 1 breaking update(s):
 ubuntu:18.03
@@ -16,7 +16,7 @@ ubuntu:18.03
     -> 18.04
 ```
 
-`/home/y0hy0h/Dockerfile`:
+`/home/j-maas/Dockerfile`:
 ```Dockerfile
 # uptag --pattern "<!>.<>"
 FROM ubuntu:18.03
@@ -27,7 +27,7 @@ Documentation is available with `uptag help`. Note that for example `uptag fetch
 For an example of how to receive daily update emails, see `./examples`.
 
 ## Installation
-Download the binaries from the [releases page](https://github.com/Y0hy0h/uptag/releases), available for Linux and Windows. Put them in a convenient location that is included in your [`PATH`](https://superuser.com/a/284351), so that `uptag` is available from everywhere.
+Download the binaries from the [releases page](https://github.com/j-maas/uptag/releases), available for Linux and Windows. Put them in a convenient location that is included in your [`PATH`](https://superuser.com/a/284351), so that `uptag` is available from everywhere.
 
 Alternatively, you can build the binary for your system yourself. Install [`rustup`](https://rustup.rs/), clone this repository, and run `cargo build --release` in this folder. The binary will be available at `./target/release/uptag`.
 
