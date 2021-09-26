@@ -361,8 +361,8 @@ pub mod docker_compose {
                 .map(|(service, build_context)| match build_context {
                     BuildContext::Image(image, update) => format!(
                         "{service}\n{updates}",
-                        service = display_service_image(service, &image),
-                        updates = display_update(&image, "-!>", update),
+                        service = display_service_image(service, image),
+                        updates = display_update(image, "-!>", update),
                     ),
                     BuildContext::Folder(service_path, updates) => format!(
                         "{service}\n{updates}",
@@ -378,8 +378,8 @@ pub mod docker_compose {
                 .map(|(service, build_context)| match build_context {
                     BuildContext::Image(image, update) => format!(
                         "{service}\n{updates}",
-                        service = display_service_image(service, &image),
-                        updates = display_update(&image, "->", update),
+                        service = display_service_image(service, image),
+                        updates = display_update(image, "->", update),
                     ),
                     BuildContext::Folder(service_path, updates) => format!(
                         "{service}\n{updates}",
@@ -393,7 +393,7 @@ pub mod docker_compose {
                 .no_updates
                 .iter()
                 .map(|(service, build_context)| match build_context {
-                    BuildContext::Image(image, ()) => display_service_image(service, &image),
+                    BuildContext::Image(image, ()) => display_service_image(service, image),
                     BuildContext::Folder(service_path, images) => format!(
                         "{service}\n{images}",
                         service = display_service_folder(service, service_path),
@@ -442,7 +442,7 @@ pub mod docker_compose {
                     ),
                     Ok(BuildContext::Image(image, error)) => format!(
                         "{service}\n{error}",
-                        service = display_service_image(service, &image),
+                        service = display_service_image(service, image),
                         error = display_error(error)
                     ),
                     Ok(BuildContext::Folder(service_path, errors)) => {

@@ -92,7 +92,7 @@ pub mod extractor {
                 .parts()
                 .iter()
                 .map(|part| match part {
-                    Literal(literal) => Self::escape_literal(&literal),
+                    Literal(literal) => Self::escape_literal(literal),
                     VersionPart => r"(\d+)".to_string(),
                 })
                 .join("");
@@ -128,7 +128,7 @@ pub mod extractor {
         where
             T: Tagged,
         {
-            let tag = candidate.tag().as_ref();
+            let tag = candidate.tag();
             let parts = self
                 .regex
                 .captures(tag) // Only look at the first match.

@@ -85,7 +85,7 @@ impl CurrentPage {
         match self {
             First => Some(format!(
                 "https://hub.docker.com/v2/repositories/{image}/tags/?page_size={amount}&page={page}&ordering=last_updated",
-                image=Self::format_name_for_url(&image),
+                image=Self::format_name_for_url(image),
                 amount=FETCH_AMOUNT,
                 page=1
             )),
