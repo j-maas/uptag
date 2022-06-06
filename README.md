@@ -1,5 +1,5 @@
 # uptag: Update tags in Dockerfiles.
-[![CI status](https://github.com/j-maas/uptag/workflows/CI/badge.svg)](https://github.com/j-maas/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license) [![Passively maintained](https://img.shields.io/badge/maintenance-passive-yellow)](#maintenance)
+[![CI status](https://github.com/j-maas/uptag/workflows/CI/badge.svg)](https://github.com/j-maas/uptag/actions?query=workflow%3ACI) [![Licensed under MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license) [![As is](https://img.shields.io/badge/maintenance-as_is-yellow)](#maintenance)
 
 Tired of manually looking up whether the base images you depend on have been updated?
 
@@ -77,7 +77,7 @@ services:
 ```
 
 ## Maintenance
-This project is passively maintened. I intend to respond to issues and pull requests, but am not dedicating time to develop new features.
+This project is provided as is. I do not intend to continue working on this, but it works for the purposes it was designed for.
 
 ## License
 Licensed under either of
