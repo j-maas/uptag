@@ -280,7 +280,7 @@ fn check_compose(opts: CheckComposeOpts) -> Result<ExitCode> {
         .with_style(ProgressStyle::default_bar().template("{msg}\n{wide_bar} {pos}/{len}"));
 
     let updates = services.into_iter().map(|(service_name, build_context)| {
-        progress_bar.set_message(&format!(
+        progress_bar.set_message(format!(
             "Fetching for service `{service}`",
             service = service_name
         ));
