@@ -496,7 +496,7 @@ pub mod docker_compose {
 
     fn display_update(image: &Image, version_prefix: &'static str, update: &str) -> String {
         let output = format_update(image, version_prefix, update);
-        let indented_output = output.replace("\n", "\n    ");
+        let indented_output = output.replace('\n', "\n    ");
         format!("  - {}", indented_output)
     }
 

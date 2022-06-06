@@ -102,7 +102,7 @@ pub mod extractor {
         }
 
         fn escape_literal(literal: &str) -> String {
-            literal.replace(".", r"\.")
+            literal.replace('.', r"\.")
         }
 
         pub fn parse<'a, S>(pattern: S) -> Result<VersionExtractor, pattern::Error>

@@ -33,7 +33,7 @@ Specify which numbers indicate breaking changes using `<!>`. Uptag will report b
   - compatible updates: `1.6.12` and `1.4.13`
   - breaking updates: `2.4.12` and `3.5.13`")]
 enum Opts {
-    Fetch(FetchOpts),
+    Fetch(Box<FetchOpts>),
     Check(CheckOpts),
     CheckCompose(CheckComposeOpts),
 }
@@ -119,7 +119,7 @@ fn main() {
 
     use Opts::*;
     let result = match opts {
-        Fetch(opts) => fetch(opts),
+        Fetch(opts) => fetch(*opts),
         Check(opts) => check(opts),
         CheckCompose(opts) => check_compose(opts),
     };
